@@ -1,0 +1,14 @@
+{
+  "recommendations": [
+    "bradlc.vscode-tailwindcss",
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "ms-azuretools.vscode-docker",
+    "yoavbls.pretty-ts-errors",
+    "Prisma.prisma",
+    "ckolkman.vscode-postgres",
+    "rangav.vscode-thunder-client",
+    "mikestead.dotenv",
+    "wayou.vscode-todo-highlight"
+  ]
+}

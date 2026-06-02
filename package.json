@@ -1,0 +1,32 @@
+{
+  "name": "pioneira-financas",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Sistema financeiro v2 da Viacao Pioneira",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=8"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "clean": "turbo run clean && rimraf node_modules .turbo",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "docker:app:build": "docker compose --env-file .env.docker --profile app build",
+    "docker:app:up": "docker compose --env-file .env.docker --profile app up -d",
+    "docker:app:down": "docker compose --env-file .env.docker --profile app down",
+    "docker:app:logs": "docker compose --env-file .env.docker --profile app logs -f backend frontend",
+    "docker:app:rebuild": "docker compose --env-file .env.docker --profile app up -d --build --force-recreate"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.4.0"
+  }
+}

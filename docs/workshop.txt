@@ -1,0 +1,828 @@
+Jurídico
+--------------------------------------------------
+SELECT 
+        D.DESCRICAOINFRA,
+        V.PREFIXOVEIC,
+        M.*,
+        A.COD_AGENTE_AUTUADOR AS "AGENTE_CODIGO",
+        A.DESC_AGENTE_AUTUADOR AS "AGENTE_DESCRICAO",
+        A.MATRICULAFISCAL AS "AGENTE_MATRICULA_FISCAL"
+      FROM DVS_MULTA M,
+           DVS_INFRACAO D,
+           FRT_CADVEICULOS V,
+           GLOBUS.DVS_AGENTE_AUTUADOR A
+      WHERE M.CODIGOVEIC = V.CODIGOVEIC (+)
+        AND M.CODIGOINFRA = D.CODIGOINFRA
+        AND M.COD_AGENTE_AUTUADOR = A.COD_AGENTE_AUTUADOR (+)
+        AND V.CODIGOEMPRESA = 4
+        AND M.DATAEMISSAOMULTA BETWEEN '25-NOV-2024' AND '25-NOV-2025'
+      ORDER BY M.DATAEMISSAOMULTA DESC, V.PREFIXOVEIC;
+
+-------------------------------------------------------------
+Pessoal
+-----------------------------------------------------------------
+ SELECT 
+    'S' as VALEREFEICFUNC,
+    NULL as DTTRANSFFUNC,
+    F.CODIGOEMPRESA as EMPRESA,
+    F.CODINTFUNC,
+    F.CODFUNC as CRACHA,
+    F.CHAPAFUNC as CHAPA,
+    F.NOMEFUNC as NOME,
+    MAE_DEP.NOMEDEPEN as MAE,
+    CPF_DOC.NRDOCTO as CPF,
+    F.DESCFUNCAO as FUNCAO,
+    -- Usando o departamento real da tabela
+    COALESCE(F.DESCDEPTO, 'SEM DEPARTAMENTO') as DEPARTAMENTO,
+    COALESCE(F.DESCAREA, 'SEM AREA') as AREA,
+    NULL as DESCSECAO,
+    NULL as DESCSETOR,
+    NULL as ENDERECO,
+    NULL as CASA,
+    NULL as BAIRRO,
+    'BRASILIA' as CIDADE,
+    NULL as FONEFUNC,
+    NULL as FONE2FUNC,
+    F.DTADMFUNC as ADMISSAO,
+    F.SITUACAOFUNC as SITUACAO,
+    -- Salários da consulta de folha de pagamento
+    COALESCE(SAL.BASESALARIAL, 0) as SALBASE,
+    COALESCE(SAL.TOTALPROV, 0) as SALAUX1,
+    COALESCE(SAL.TOTALLIQ, 0) as SALAUX2,
+    NULL as DTCOMPETQUITA,
+    NULL as IDQUITA,
+    A.DTAFAST as DTDESLIGQUITA,
+    -- Cálculo de idade
+    CASE 
+        WHEN F.DTNASCTOFUNC IS NOT NULL THEN 
+            TRUNC(MONTHS_BETWEEN(SYSDATE, F.DTNASCTOFUNC) / 12)
+        ELSE NULL
+    END as IDADE,
+    -- Tempo empresa em dias
+    CASE 
+        WHEN F.DTADMFUNC IS NOT NULL THEN 
+            TRUNC(SYSDATE - F.DTADMFUNC)
+        ELSE NULL
+    END as TEMPO_EMPRESA_DIAS,
+    -- Tempo empresa em anos
+    CASE 
+        WHEN F.DTADMFUNC IS NOT NULL THEN 
+            TRUNC(MONTHS_BETWEEN(SYSDATE, F.DTADMFUNC) / 12, 2)
+        ELSE NULL
+    END as TEMPO_EMPRESA_ANOS,
+    -- Informações do afastamento
+    A.DTAFAST as DATA_AFASTAMENTO,
+    A.CODCID as CID_MEDICO,
+    CID.DESCCID as DESCRICAO_CID
+FROM VW_FUNCIONARIOS F
+    -- LEFT JOIN para CPF (pegando apenas o primeiro registro)
+    LEFT JOIN (
+        SELECT CODINTFUNC, MIN(NRDOCTO) as NRDOCTO
+        FROM FLP_DOCUMENTOS 
+        WHERE TIPODOCTO = 'CPF'
+        GROUP BY CODINTFUNC
+    ) CPF_DOC ON F.CODINTFUNC = CPF_DOC.CODINTFUNC
+    
+    -- LEFT JOIN para MAE (pegando apenas o primeiro registro)
+    LEFT JOIN (
+        SELECT CODINTFUNC, MIN(NOMEDEPEN) as NOMEDEPEN
+        FROM FLP_DEPENDENTES 
+        WHERE CODPAREN = 10
+        GROUP BY CODINTFUNC
+    ) MAE_DEP ON F.CODINTFUNC = MAE_DEP.CODINTFUNC
+    
+    -- LEFT JOIN para afastamentos (pegando o mais recente)
+    LEFT JOIN (
+        SELECT CODINTFUNC, DTAFAST, CODCID,
+               ROW_NUMBER() OVER (PARTITION BY CODINTFUNC ORDER BY DTAFAST DESC) as RN
+        FROM FLP_AFASTADOS
+    ) A ON F.CODINTFUNC = A.CODINTFUNC AND A.RN = 1
+    
+    LEFT JOIN FRQ_CID CID ON A.CODCID = CID.CODCID
+    
+    -- LEFT JOIN para salários da última competência
+    LEFT JOIN (
+        SELECT 
+            F_SAL.CODINTFUNC,
+            SUM(CASE WHEN E_SAL.TIPOEVEN = 'B' AND E_SAL.CODEVENTO = 300 THEN FE_SAL.VALORFICHA ELSE 0 END) AS BASESALARIAL,
+            SUM(CASE WHEN E_SAL.TIPOEVEN = 'B' AND E_SAL.CODEVENTO = 318 THEN FE_SAL.VALORFICHA ELSE 0 END) AS TOTALPROV,
+            SUM(CASE WHEN E_SAL.TIPOEVEN = 'B' AND E_SAL.CODEVENTO IN (500, 502) THEN FE_SAL.VALORFICHA ELSE 0 END) AS TOTALLIQ
+        FROM VW_FUNCIONARIOS F_SAL
+            INNER JOIN FLP_FICHAEVENTOS FE_SAL ON F_SAL.CODINTFUNC = FE_SAL.CODINTFUNC
+            INNER JOIN FLP_EVENTOS E_SAL ON FE_SAL.CODEVENTO = E_SAL.CODEVENTO
+            INNER JOIN (
+                SELECT CODIGOEMPRESA, CODIGOFL, TIPOFOLHA, MAX(COMPETENCIA) as ULTIMA_COMPETENCIA
+                FROM FLP_ENCERRAMENTOFICHAFIN
+                WHERE CODIGOEMPRESA = 4
+                    AND CODIGOFL IN (1, 5, 6, 17, 19)
+                    AND TIPOFOLHA IN (1, 5)
+                GROUP BY CODIGOEMPRESA, CODIGOFL, TIPOFOLHA
+            ) C_SAL ON (
+                FE_SAL.TIPOFOLHA = C_SAL.TIPOFOLHA 
+                AND F_SAL.CODIGOEMPRESA = C_SAL.CODIGOEMPRESA 
+                AND F_SAL.CODIGOFL = C_SAL.CODIGOFL 
+                AND FE_SAL.COMPETFICHA = C_SAL.ULTIMA_COMPETENCIA
+            )
+        WHERE FE_SAL.TIPOFOLHA IN (1, 5)
+            AND F_SAL.CODIGOEMPRESA = 4
+            AND F_SAL.CODIGOFL IN (1, 5, 6, 17, 19)
+            AND E_SAL.TIPOEVEN = 'B'
+            AND E_SAL.CODEVENTO IN (300, 318, 500, 502)
+        GROUP BY F_SAL.CODINTFUNC
+    ) SAL ON F.CODINTFUNC = SAL.CODINTFUNC
+    
+WHERE F.CODIGOEMPRESA = 4
+    AND F.SITUACAOFUNC IN ('A', 'F', 'D')
+ORDER BY F.DESCDEPTO ASC, F.NOMEFUNC ASC;
+--------------------------------------------------------
+Frota
+------------------------------------------------------------
+ SELECT 
+          C.CODIGOVEIC AS "CODIGO_VEICULO",
+          C.PREFIXOVEIC AS "PREFIXO",
+          REPLACE(REPLACE(C.PLACAATUALVEIC, '-', ''), ' ', '') AS "PLACA",
+          L.DESCRICAOMARCARROC || ' - ' || M.DESCRICAOMODCARROC AS "MODELO",
+          R.DESCRICAOMOTMARCA AS "MARCA",
+          SUBSTR(P.MESANOFABRCPRVEIC, 3, 2) AS "ANO",
+          CASE 
+            WHEN C.CONDICAOVEIC = 'A' THEN 'ATIVO'
+            WHEN C.CONDICAOVEIC = 'I' THEN 'INATIVO'
+            ELSE 'DESCONHECIDO'
+          END AS "STATUS",
+          TO_CHAR(C.CODIGOGA) AS "GARAGEM",
+          CASE 
+            WHEN C.CODIGOGA = 31 THEN 'PARANOÁ'
+            WHEN C.CODIGOGA = 124 THEN 'SANTA MARIA'
+            WHEN C.CODIGOGA = 239 THEN 'SÃO SEBASTIÃO'
+            WHEN C.CODIGOGA = 240 THEN 'GAMA'
+            ELSE 'DESCONHECIDA'
+          END AS "GARAGEM_NOME",
+          NULL AS "SETOR",
+          CASE 
+            WHEN T.CODIGOTPFROTA = 3 THEN 'CONVENCIONAL'
+            WHEN T.CODIGOTPFROTA = 4 THEN 'ART. PISO ALTO'
+            WHEN T.CODIGOTPFROTA = 9 THEN 'MINI-ÔNIBUS'
+            WHEN T.CODIGOTPFROTA IN (10, 11, 14) THEN 'ART. PISO BAIXO'
+            WHEN T.CODIGOTPFROTA = 12 THEN 'PADRON'
+            WHEN T.CODIGOTPFROTA = 13 THEN 'SUPER PADRON'
+            ELSE T.DESCRICAOTPFROTA
+          END AS "TIPO_VEICULO",
+          NULL AS "CAPACIDADE_PASSAGEIROS"
+        FROM FRT_CADVEICULOS C
+        LEFT JOIN FRT_COMPRAVEIC P ON C.CODIGOVEIC = P.CODIGOVEIC
+        LEFT JOIN FRT_MODCARROC M ON C.CODIGOMODCARROC = M.CODIGOMODCARROC
+        LEFT JOIN FRT_MARCACARROC L ON M.CODIGOMARCARROC = L.CODIGOMARCARROC
+        LEFT JOIN FRT_TIPODEFROTA T ON C.CODIGOTPFROTA = T.CODIGOTPFROTA
+        LEFT JOIN MOT_MODELOMOTOR E ON C.CODIGOMODMOTOR = E.CODIGOMODMOTOR
+        LEFT JOIN MOT_CADASTROMARCA R ON E.CODIGOMOTMARCA = R.CODIGOMOTMARCA
+        WHERE C.CONDICAOVEIC IN ('A', 'I')
+          AND C.CODIGOEMPRESA = 4
+          AND C.CODIGOGA IN (31, 124, 239, 240)
+          AND LENGTH(TO_NUMBER(C.PREFIXOVEIC)) > 5
+        ORDER BY C.CODIGOGA, TO_NUMBER(C.PREFIXOVEIC)
+-------------------------------------------------------------------------------
+Acidente
+--------------------------------------------------------------------------------
+SELECT * FROM (
+          SELECT
+              TO_CHAR(A.DATA_ACIDENTE, 'DD/MM/YYYY') AS "DATA_ACIDENTE",
+              TO_CHAR(A.DATA_ACIDENTE, 'HH24:MI:SS') AS "HORA_ACIDENTE",
+              
+              A.CONDICAO_TEMPO AS "CondicaoTempo",
+              A.VISIVILIDADE AS "Visibilidade",
+              A.GRAU_ACIDENTE AS "GrauAcidente",
+              A.STATUS_PROCESSO AS "StatusProcesso",
+              A.OCORRENCIA AS "Ocorrencia",
+              A.TIPO AS "TipoAcidenteGeral",
+              A.BAIRRO AS "Bairro",
+              A.MUNICIPIO AS "Municipio",
+              A.TIPO_MONTA AS "TipoMonta",
+              A.TIPO_ACIDENTE AS "TipoAcidenteDetalhe",
+              A.VALOR_TOTAL AS "ValorTotalDano",
+              A.VALOR_ACORDO AS "ValorAcordo",
+              A.TURNO AS "Turno",
+              A.PUNICAO AS "PunicoesAplicadas",
+              
+              -- Informações da Linha (pegar primeira linha se houver múltiplas)
+              L.NUMERO AS "NumeroLinha",
+              L.DESCRICAO AS "DescricaoLinha",
+              
+              -- Nome da Garagem (Linha)
+              CASE SUBSTR(L.GARAGEM, 1, 3)
+                  WHEN '004' THEN 'V. PIONEIRA'
+                  WHEN '031' THEN 'PARANOÁ'
+                  WHEN '124' THEN 'SANTA M.'
+                  WHEN '239' THEN 'SÃO SEBAS.'
+                  WHEN '240' THEN 'GAMA'
+                  ELSE L.GARAGEM
+              END AS "GaragemLinhaNome",
+
+              -- Informações do Veículo
+              F.PREFIXO AS "PrefixoVeiculo",
+              F.PLACA AS "PlacaVeiculo",
+              
+              -- Nome da Garagem (Veículo)
+              CASE SUBSTR(F.GARAGEM, 1, 3)
+                  WHEN '004' THEN 'VIAÇÃO PIONEIRA'
+                  WHEN '031' THEN 'PARANOÁ'
+                  WHEN '124' THEN 'SANTA M.'
+                  WHEN '239' THEN 'SÃO SEBAS.'
+                  WHEN '240' THEN 'GAMA'
+                  ELSE F.GARAGEM
+              END AS "GaragemVeiculoNome",
+              
+              ROW_NUMBER() OVER (
+                PARTITION BY A.DATA_ACIDENTE, A.OCORRENCIA, F.PREFIXO, A.TURNO 
+                ORDER BY L.NUMERO NULLS LAST
+              ) AS rn
+              
+          FROM
+              PI_ACD A
+          LEFT JOIN PI_LIN L ON A.CODINTLINHA = L.CODINTLINHA
+          LEFT JOIN PI_FRT F ON A.CODIGOVEIC = F.CODIGOVEIC
+          ${this.construirFiltroData(dataInicio, dataFim)}
+        )
+        WHERE rn = 1
+        ORDER BY
+            TO_DATE("DATA_ACIDENTE", 'DD/MM/YYYY') DESC,
+            "PrefixoVeiculo" NULLS LAST
+-------------------------------------------------------------------
+Man Os
+----------------------------------------------------------------------
+ SELECT
+          T2.CODINTOS AS "codigoInternoOS",
+          T2.NUMEROOS AS "numeroOS",
+          T2.CODIGOVEIC AS "codigoVeiculo",
+          T2.CODIGOGA AS "codigoGaragem",
+          V.PREFIXOVEIC AS "prefixoVeiculo",
+          V.PLACAATUALVEIC AS "placaVeiculo",
+          DECODE(V.CONDICAOVEIC, 'A', 'Ativo', 'I', 'Inativo', 'Outro') AS "condicaoVeiculo",
+          TO_CHAR(T2.DATAABERTURAOS, 'DD/MM/YYYY') AS "dataAbertura",
+          TO_CHAR(T2.DATAFECHAMENTOOS, 'DD/MM/YYYY') AS "dataFechamento",
+          T2.HORAABERTURAOS AS "horaAbertura",
+          DECODE(T2.TIPOOS, 'C', 'Corretiva', 'P', 'Preventiva', 'Outro') AS "tipoOSDescricao",
+          T2.TIPOOS AS "tipoOS",
+          DECODE(T2.CONDICAOOS, 'A', 'Aberta', 'AB', 'Aberta', 'FC', 'Fechada', 'Outro') AS "condicaoOSDescricao",
+          T2.CONDICAOOS AS "condicaoOS",
+          T2.CODORIGOS AS "codigoOrigemOS",
+          T2.USUARIOABERTURAOS AS "usuarioAbertura",
+          T3.DESCORIGOS AS "descricaoOrigem",
+          T1.DESCRCOMPLOSREA AS "descricaoServico",
+          T1.CODSETOR AS "codigoSetor",
+          T1.CODIGOGRPSERVI AS "codigoGrupoServico",
+          GS.DESCRICAOGRPSERVI AS "grupoServico",
+          CASE
+            WHEN T2.CODIGOGA = 31 THEN 'PARANOÁ'
+            WHEN T2.CODIGOGA = 124 THEN 'SANTA MARIA'
+            WHEN T2.CODIGOGA = 239 THEN 'SÃO SEBASTIÃO'
+            WHEN T2.CODIGOGA = 240 THEN 'GAMA'
+            ELSE 'GARAGEM_' || T2.CODIGOGA
+          END AS "garagem",
+          CASE
+            WHEN T2.CODORIGOS = 23 THEN 'QUEBRA'
+            WHEN T2.CODORIGOS = 24 THEN 'DEFEITO'
+            ELSE 'OUTRO_' || T2.CODORIGOS
+          END AS "tipoProblema",
+          CASE
+            WHEN T2.DATAFECHAMENTOOS IS NOT NULL THEN
+              T2.DATAFECHAMENTOOS - T2.DATAABERTURAOS
+            ELSE
+              TRUNC(SYSDATE) - TRUNC(T2.DATAABERTURAOS)
+          END AS "diasEmAndamento",
+          T2.KMEXECUCAOOS AS "kmExecucao",
+          NVL(T2.VLRMAOOBRATERCOS, 0) AS "valorMaoObraTerceiros",
+          NVL(T2.VLRPECASTERCOS, 0) AS "valorPecasTerceiros",
+          DECODE(T2.SOCORROOS, 'S', 'Sim', 'N', 'Não', 'Não informado') AS "ehSocorro"
+        FROM
+          man_os T2
+        LEFT JOIN
+          man_osrealizado T1 ON T2.CODINTOS = T1.CODINTOS
+        LEFT JOIN
+          man_origemos T3 ON T2.CODORIGOS = T3.CODORIGOS
+        LEFT JOIN
+          frt_cadveiculos V ON T2.CODIGOVEIC = V.CODIGOVEIC
+        LEFT JOIN
+          man_grupodeservico GS ON T1.CODIGOGRPSERVI = GS.CODIGOGRPSERVI
+        WHERE
+          T2.DATAABERTURAOS >= TO_DATE('${processedParams.startDate}', 'YYYY-MM-DD')
+          AND T2.DATAABERTURAOS <= TO_DATE('${processedParams.endDate}', 'YYYY-MM-DD')
+          ${processedParams.origens.length > 0 ? `AND T2.CODORIGOS IN (${processedParams.origens.join(',')})` : ''}
+          ${processedParams.garagens.length > 0 ? `AND T2.CODIGOGA IN (${processedParams.garagens.join(',')})` : ''}
+          AND (V.CONDICAOVEIC IS NULL OR V.CONDICAOVEIC = 'A')
+          AND ROWNUM <= ${processedParams.limit}
+        ORDER BY
+          T2.DATAABERTURAOS DESC,
+          T2.NUMEROOS
+---------------------------------------------------------------
+DACN
+---------------------------------------------------------------
+SELECT
+    H.CODINTFUNC,
+    H.CODOCORR,
+    -- RECUPERA O NOME DA OCORRÊNCIA USANDO CASE
+    CASE H.CODOCORR
+        WHEN 81 THEN 'FALTAS'
+        WHEN 82 THEN 'ATESTADO DOENCA'
+        WHEN 83 THEN 'LICENCA'
+        WHEN 87 THEN 'LIC PATERNIDADE'
+        WHEN 88 THEN 'LIC MEDICA'      
+        WHEN 89 THEN 'LIC MEDICA'
+        WHEN 92 THEN 'SUSPENSAO'
+        WHEN 125 THEN 'LIC MEDICA'    
+        WHEN 147 THEN 'ATESTADO COVID'
+        ELSE 'CODIGO NAO MAPEADO' 
+    END AS OCORRENCIA,
+    
+    -- Agrupamento de Ocorrências (OCORR_GROUP)
+    CASE 
+        WHEN H.CODOCORR IN (88, 125, 89, 87) THEN 'LICENÇA'
+        WHEN H.CODOCORR = 83 THEN 'LICENÇA ADM'
+        ELSE 
+            CASE H.CODOCORR
+                WHEN 81 THEN 'FALTAS'
+                WHEN 82 THEN 'ATESTADO DOENCA'
+                WHEN 92 THEN 'SUSPENSAO'
+                WHEN 147 THEN 'FALTA' 
+                ELSE 'OUTRO' 
+            END
+    END AS OCORR_GROUP, 
+    
+    -- Mapeia a Área para um Código
+    CASE F.DESCAREA 
+        WHEN 'GAMA' THEN 56
+        WHEN 'SÃO SEBASTIAO' THEN 42
+        WHEN 'RODOVIÁRIA ' THEN 31
+        WHEN 'PARANOÁ' THEN 31
+        WHEN 'ITAPOÃ' THEN 31
+        WHEN 'NÚCLEO BANDEIRANTE' THEN 39
+        WHEN 'SANTA MARIA ' THEN 124
+        WHEN 'QNR' THEN 45
+        WHEN 'SETOR O' THEN 47
+        ELSE 0 
+    END AS CODAREA,
+    
+    F.DESCAREA AS AREA,
+    
+    -- Abrevia a Área
+    CASE F.DESCAREA
+        WHEN 'SÃO SEBASTIAO' THEN 'SÃO SEB.'
+        WHEN 'RODOVIÁRIA ' THEN 'PARANOÁ' 
+        WHEN 'PARANOÁ' THEN 'PARANOÁ'     
+        WHEN 'ITAPOÃ' THEN 'PARANOÁ'       
+        WHEN 'NÚCLEO BANDEIRANTE' THEN 'NÚCLEO BAND.'
+        WHEN 'SANTA MARIA ' THEN 'SANTA MA.'
+        ELSE F.DESCAREA 
+    END AS AREA_ABREV,
+    
+    H.DTHIST AS DATAMOVTO
+FROM 
+    FLP_HISTORICO H
+JOIN
+    VW_FUNCIONARIOS F ON H.CODINTFUNC = F.CODINTFUNC
+WHERE 
+    -- **FILTRO: O MESMO MÊS NO ANO PASSADO**
+    H.DTHIST >= ADD_MONTHS(TRUNC(SYSDATE, 'MM'), -12)
+    AND H.DTHIST < TRUNC(SYSDATE, 'MM')
+    
+    AND H.CODOCORR IN (147, 82, 81, 83, 92, 88, 125, 89, 87)
+    AND F.DESCFUNCAO NOT LIKE '%JOVEM%'
+    AND F.CODIGOEMPRESA = 4;
+-------------------------------------------------------------------------------
+Revisão Preventiva
+-------------------------------------------------------------------------------
+SELECT DISTINCT
+    o.tipoos,
+    o.codigoempresa,
+    o.codigoga,
+    -- MAPEAMENTO DO NOME DA GARAGEM
+    CASE 
+        WHEN o.CODIGOGA = 31 THEN 'PARANOÁ'
+        WHEN o.CODIGOGA = 124 THEN 'SANTA MARIA'
+        WHEN o.CODIGOGA = 239 THEN 'SÃO SEBASTIÃO'
+        WHEN o.CODIGOGA = 240 THEN 'GAMA'
+        ELSE 'DESCONHECIDA'
+    END AS "GARAGEM_NOME",
+    -- STATUS DE EXECUÇÃO: Agora SEMPRE será 'EXECUTADA/FECHADA'
+    'EXECUTADA/FECHADA' AS "STATUS_OS",
+    o.numeroos,
+    v.prefixoveic,
+    o.dataaberturaos,
+    o.datafechamentoos
+    
+FROM
+    man_os o
+JOIN frt_cadveiculos v ON o.codigoveic = v.codigoveic
+      
+WHERE
+    O.TIPOOS = 'P'
+AND o.codigoempresa = 4
+AND o.codigoga IN (31, 124, 239, 240)
+
+-- NOVO FILTRO: Abertura DEVE ser em Dezembro (até o dia 10)
+AND o.dataaberturaos >= TO_DATE('01/12/2025', 'DD/MM/YYYY')
+AND o.dataaberturaos < TO_DATE('12/12/2025', 'DD/MM/YYYY') 
+
+-- NOVO FILTRO: Fechamento DEVE ser em Dezembro (até o dia 10)
+AND o.datafechamentoos >= TO_DATE('01/12/2025', 'DD/MM/YYYY')
+AND o.datafechamentoos < TO_DATE('12/12/2025', 'DD/MM/YYYY') 
+-- Garantindo que a OS foi fechada
+AND o.datafechamentoos IS NOT NULL 
+
+ORDER BY
+    o.codigoga,
+    o.dataaberturaos DESC;
+--------------------------------------------------------------------------------------------------
+Horas extras
+--------------------------------------------------------------------------------------------------
+WITH TREINO AS (
+    SELECT 
+        W.CODINTFUNC,
+        F.CODIGOEMPRESA,
+        W.DATACURSOFUNC,
+        -- converte CARGAHORARIA do formato HH.MM (ex: 7.30) para horas reais
+        TRUNC(W.CARGAHORARIA) +
+        ((W.CARGAHORARIA - TRUNC(W.CARGAHORARIA)) * 100) / 60 AS HORAS_DECIMAIS
+    FROM SRH_CURSOS_FUNC W
+    JOIN FLP_FUNCIONARIOS F 
+      ON F.CODINTFUNC = W.CODINTFUNC
+    WHERE W.DATACURSOFUNC BETWEEN TO_DATE('01/02/2025','DD/MM/YYYY')
+                              AND TO_DATE('28/02/2025','DD/MM/YYYY')
+      AND F.CODIGOEMPRESA = 4
+)
+SELECT 
+    TO_CHAR(DATACURSOFUNC, 'MM/YYYY') AS MES_ANO,
+    COUNT(DISTINCT CODINTFUNC)        AS QTD_FUNC,
+    SUM(HORAS_DECIMAIS)              AS HORAS,
+    ROUND(
+        SUM(HORAS_DECIMAIS) / NULLIF(COUNT(DISTINCT CODINTFUNC), 0),
+        2
+    ) AS HORAS_POR_FUNC
+FROM TREINO
+GROUP BY TO_CHAR(DATACURSOFUNC, 'MM/YYYY')
+ORDER BY 1;
+------------------------------------------------------------------------------------------------------------
+TurnOver
+---------------------------------------------------------------------------------------------------------------
+WITH QUITACAO_VALOR AS (
+    SELECT
+        Q.CODINTFUNC,
+        MAX(Q.DTDESLIGQUITA) AS DTDESLIGQUITA,
+        SUM(
+            NVL(Q.GRFC30MESANTRES_VLR, 0) +
+            NVL(Q.GRFC31MESRES_VLR, 0) +
+            NVL(Q.GRFC32AVPREVIND_VLR, 0) +
+            NVL(Q.GRFC33MULTA, 0) +
+            NVL(Q.VREXTRFGTSQUITA, 0)
+        ) AS VL_RCT
+    FROM FLP_QUITACAO Q
+    WHERE Q.STATUSQUITA = 'N'
+    GROUP BY Q.CODINTFUNC
+),
+BASE AS (
+    SELECT 
+        F.CODIGOEMPRESA,
+        F.CODINTFUNC,
+        F.DTADMFUNC           AS ADMITIDO,
+        QV.DTDESLIGQUITA      AS DESLIGADO,
+        QV.VL_RCT             AS CUSTO_RCT
+    FROM VW_FUNCIONARIOS F
+    LEFT JOIN QUITACAO_VALOR QV
+           ON QV.CODINTFUNC = F.CODINTFUNC
+    WHERE F.CODIGOEMPRESA = 4
+),
+AGG AS (
+    SELECT
+        CODIGOEMPRESA,
+
+        -- Admitidos no período
+        SUM(
+            CASE 
+                WHEN ADMITIDO BETWEEN DATE '2024-01-01'
+                                  AND DATE '2024-12-31'
+                THEN 1 ELSE 0
+            END
+        ) AS QTD_ADMITIDOS,
+
+        -- Desligados no período
+        SUM(
+            CASE 
+                WHEN DESLIGADO BETWEEN DATE '2024-01-01'
+                                    AND DATE '2024-12-31'
+                THEN 1 ELSE 0
+            END
+        ) AS QTD_DESLIGADOS,
+
+        -- Custo total de rescisão no período
+        SUM(
+            CASE 
+                WHEN DESLIGADO BETWEEN DATE '2024-01-01'
+                                    AND DATE '2024-12-31'
+                THEN CUSTO_RCT ELSE 0
+            END
+        ) AS CUSTO_RCT_TOTAL
+    FROM BASE
+    GROUP BY CODIGOEMPRESA
+)
+SELECT
+    CODIGOEMPRESA,
+    QTD_ADMITIDOS,
+    QTD_DESLIGADOS,
+    CUSTO_RCT_TOTAL,
+    ROUND(
+        CUSTO_RCT_TOTAL / DECODE(QTD_DESLIGADOS, 0, NULL, QTD_DESLIGADOS),
+        2
+    ) AS CUSTO_POR_RCT
+FROM AGG;
+
+------------------------------------------------------------------------------------------
+DEPARTAMENTO DE OPERAÇÃO
+------------------------------------------------------------------------------------------
+SELECT 
+    'S' as VALEREFEICFUNC,
+    NULL as DTTRANSFFUNC,
+    F.CODIGOEMPRESA as EMPRESA,
+    F.CODINTFUNC,
+    F.CODFUNC as CRACHA,
+    F.CHAPAFUNC as CHAPA,
+    F.NOMEFUNC as NOME,
+    MAE_DEP.NOMEDEPEN as MAE,
+    CPF_DOC.NRDOCTO as CPF,
+    F.DESCFUNCAO as FUNCAO,
+    -- Usando o departamento real da tabela
+    COALESCE(F.DESCDEPTO, 'SEM DEPARTAMENTO') as DEPARTAMENTO,
+    COALESCE(F.DESCAREA, 'SEM AREA') as AREA,
+    NULL as DESCSECAO,
+    NULL as DESCSETOR,
+    NULL as ENDERECO,
+    NULL as CASA,
+    NULL as BAIRRO,
+    'BRASILIA' as CIDADE,
+    NULL as FONEFUNC,
+    NULL as FONE2FUNC,
+    F.DTADMFUNC as ADMISSAO,
+    F.SITUACAOFUNC as SITUACAO,
+    -- Salários da consulta de folha de pagamento
+    COALESCE(SAL.BASESALARIAL, 0) as SALBASE,
+    COALESCE(SAL.TOTALPROV, 0) as SALAUX1,
+    COALESCE(SAL.TOTALLIQ, 0) as SALAUX2,
+    NULL as DTCOMPETQUITA,
+    NULL as IDQUITA,
+    A.DTAFAST as DTDESLIGQUITA,
+    -- Cálculo de idade
+    CASE 
+        WHEN F.DTNASCTOFUNC IS NOT NULL THEN 
+            TRUNC(MONTHS_BETWEEN(SYSDATE, F.DTNASCTOFUNC) / 12)
+        ELSE NULL
+    END as IDADE,
+    -- Tempo empresa em dias
+    CASE 
+        WHEN F.DTADMFUNC IS NOT NULL THEN 
+            TRUNC(SYSDATE - F.DTADMFUNC)
+        ELSE NULL
+    END as TEMPO_EMPRESA_DIAS,
+    -- Tempo empresa em anos
+    CASE 
+        WHEN F.DTADMFUNC IS NOT NULL THEN 
+            TRUNC(MONTHS_BETWEEN(SYSDATE, F.DTADMFUNC) / 12, 2)
+        ELSE NULL
+    END as TEMPO_EMPRESA_ANOS,
+    -- Informações do afastamento
+    A.DTAFAST as DATA_AFASTAMENTO,
+    A.CODCID as CID_MEDICO,
+    CID.DESCCID as DESCRICAO_CID
+FROM VW_FUNCIONARIOS F
+    -- CPF
+    LEFT JOIN (
+        SELECT CODINTFUNC, MIN(NRDOCTO) as NRDOCTO
+        FROM FLP_DOCUMENTOS 
+        WHERE TIPODOCTO = 'CPF'
+        GROUP BY CODINTFUNC
+    ) CPF_DOC ON F.CODINTFUNC = CPF_DOC.CODINTFUNC
+    
+    -- MÃE
+    LEFT JOIN (
+        SELECT CODINTFUNC, MIN(NOMEDEPEN) as NOMEDEPEN
+        FROM FLP_DEPENDENTES 
+        WHERE CODPAREN = 10
+        GROUP BY CODINTFUNC
+    ) MAE_DEP ON F.CODINTFUNC = MAE_DEP.CODINTFUNC
+    
+    -- ÚLTIMO AFASTAMENTO
+    LEFT JOIN (
+        SELECT CODINTFUNC, DTAFAST, CODCID,
+               ROW_NUMBER() OVER (PARTITION BY CODINTFUNC ORDER BY DTAFAST DESC) as RN
+        FROM FLP_AFASTADOS
+    ) A ON F.CODINTFUNC = A.CODINTFUNC AND A.RN = 1
+    
+    LEFT JOIN FRQ_CID CID ON A.CODCID = CID.CODCID
+    
+    -- SALÁRIOS DA ÚLTIMA COMPETÊNCIA
+    LEFT JOIN (
+        SELECT 
+            F_SAL.CODINTFUNC,
+            SUM(CASE WHEN E_SAL.TIPOEVEN = 'B' AND E_SAL.CODEVENTO = 300 THEN FE_SAL.VALORFICHA ELSE 0 END) AS BASESALARIAL,
+            SUM(CASE WHEN E_SAL.TIPOEVEN = 'B' AND E_SAL.CODEVENTO = 318 THEN FE_SAL.VALORFICHA ELSE 0 END) AS TOTALPROV,
+            SUM(CASE WHEN E_SAL.TIPOEVEN = 'B' AND E_SAL.CODEVENTO IN (500, 502) THEN FE_SAL.VALORFICHA ELSE 0 END) AS TOTALLIQ
+        FROM VW_FUNCIONARIOS F_SAL
+            INNER JOIN FLP_FICHAEVENTOS FE_SAL ON F_SAL.CODINTFUNC = FE_SAL.CODINTFUNC
+            INNER JOIN FLP_EVENTOS E_SAL ON FE_SAL.CODEVENTO = E_SAL.CODEVENTO
+            INNER JOIN (
+                SELECT CODIGOEMPRESA, CODIGOFL, TIPOFOLHA, MAX(COMPETENCIA) as ULTIMA_COMPETENCIA
+                FROM FLP_ENCERRAMENTOFICHAFIN
+                WHERE CODIGOEMPRESA = 4
+                    AND CODIGOFL IN (1, 5, 6, 17, 19)
+                    AND TIPOFOLHA IN (1, 5)
+                GROUP BY CODIGOEMPRESA, CODIGOFL, TIPOFOLHA
+            ) C_SAL ON (
+                FE_SAL.TIPOFOLHA = C_SAL.TIPOFOLHA 
+                AND F_SAL.CODIGOEMPRESA = C_SAL.CODIGOEMPRESA 
+                AND F_SAL.CODIGOFL = C_SAL.CODIGOFL 
+                AND FE_SAL.COMPETFICHA = C_SAL.ULTIMA_COMPETENCIA
+            )
+        WHERE FE_SAL.TIPOFOLHA IN (1, 5)
+            AND F_SAL.CODIGOEMPRESA = 4
+            AND F_SAL.CODIGOFL IN (1, 5, 6, 17, 19)
+            AND E_SAL.TIPOEVEN = 'B'
+            AND E_SAL.CODEVENTO IN (300, 318, 500, 502)
+        GROUP BY F_SAL.CODINTFUNC
+    ) SAL ON F.CODINTFUNC = SAL.CODINTFUNC
+    
+WHERE F.CODIGOEMPRESA = 4
+  -- só ativos
+  AND F.SITUACAOFUNC = 'A'
+  -- já admitidos até fim de novembro/2025 (estavam na empresa nesse mês)
+  AND F.DTADMFUNC <= DATE '2025-11-30'
+  -- operação / tráfego: tenta pegar qualquer variação no texto
+  AND (
+        UPPER(F.DESCDEPTO) LIKE '%OPERA%'  -- OPERAÇÃO, OPERACIONAL
+     OR UPPER(F.DESCDEPTO) LIKE '%TRAF%'   -- TRÁFEGO, TRAFEGO, TRÁFEGO/OPERAÇÃO etc.
+     OR UPPER(F.DESCAREA)  LIKE '%OPERA%'
+     OR UPPER(F.DESCAREA)  LIKE '%TRAF%'
+  )
+ORDER BY F.DESCDEPTO ASC, F.NOMEFUNC ASC;
+-----------------------------------------------------------------------------------------
+IPK POR SETOR
+-----------------------------------------------------------------------------------------
+WITH P AS (
+    -- PASSAGEIROS POR CIDADE / MÊS
+    SELECT 
+        L.CODIGOGA AS CIDADE,
+        TRUNC(G.DAT_VIAGEM_GUIA, 'MM') AS MES_ANO,
+        SUM(D.QTD_PASSAG_TRANS) AS PASSAGEIROS
+    FROM T_ARR_GUIA G
+    JOIN T_ARR_DETALHE_GUIA D ON D.COD_SEQ_GUIA   = G.COD_SEQ_GUIA
+    JOIN T_ARR_VIAGENS_GUIA V ON V.COD_SEQ_GUIA   = D.COD_SEQ_GUIA
+                             AND V.COD_SEQ_VIAGEM = D.COD_SEQ_VIAGEM
+    JOIN BGM_CADLINHAS L      ON L.CODINTLINHA    = V.COD_INTLINHA
+    WHERE G.DAT_VIAGEM_GUIA BETWEEN DATE '2025-11-01' AND TRUNC(SYSDATE)
+      AND L.CODIGOGA IN (31, 124, 239, 240)
+      AND L.CODIGOEMPRESA = 4
+      AND D.COD_TIPOPAGTARIFA NOT IN (3)
+    GROUP BY 
+        L.CODIGOGA,
+        TRUNC(G.DAT_VIAGEM_GUIA, 'MM')
+),
+
+K AS (
+    -- KM OPERACIONAL POR CIDADE / MÊS
+    SELECT 
+        L.CODIGOGA AS CIDADE,
+        TRUNC(BC.DATABCO, 'MM') AS MES_ANO,
+        SUM(NVL(GLOBUS.FC_ARR_KMBCO_VIAGENS(BC.IDBCO, 0, BV.IDBCOVIAGENS), 0)) AS KM_OPERACIONAL
+    FROM T_ARR_BCO BC
+    JOIN T_ARR_BCO_VIAGENS BV ON BC.IDBCO = BV.IDBCO
+    JOIN BGM_CADLINHAS L      ON L.CODINTLINHA = BV.CODINTLINHA
+    WHERE BC.DATABCO BETWEEN DATE '2025-11-01' AND TRUNC(SYSDATE)
+      AND BC.CODIGOEMPRESA = 4
+      AND L.CODIGOGA IN (31, 124, 239, 240)
+    GROUP BY 
+        L.CODIGOGA,
+        TRUNC(BC.DATABCO, 'MM')
+),
+
+PV AS (
+    -- AJUSTE DE PASSAGEIROS ENTRE 124 <-> 240 (PREFIXOS ESPECIAIS)
+    SELECT 
+        L.CODIGOGA AS CIDADESAIDA,
+        240        AS CIDADEENTRADA,
+        TRUNC(G.DAT_VIAGEM_GUIA, 'MM') AS MES_ANO,
+        SUM(D.QTD_PASSAG_TRANS) AS PASSAGEIROS
+    FROM T_ARR_GUIA G
+    JOIN T_ARR_DETALHE_GUIA D ON D.COD_SEQ_GUIA   = G.COD_SEQ_GUIA
+    JOIN T_ARR_VIAGENS_GUIA V ON V.COD_SEQ_GUIA   = D.COD_SEQ_GUIA
+                             AND V.COD_SEQ_VIAGEM = D.COD_SEQ_VIAGEM
+    JOIN BGM_CADLINHAS L      ON L.CODINTLINHA    = V.COD_INTLINHA
+    JOIN FRT_CADVEICULOS VE   ON VE.CODIGOVEIC    = V.COD_VEICULO
+    WHERE G.DAT_VIAGEM_GUIA BETWEEN DATE '2025-11-01' AND TRUNC(SYSDATE)
+      AND L.CODIGOGA IN (124, 240)
+      AND L.CODIGOEMPRESA = 4
+      AND D.COD_TIPOPAGTARIFA NOT IN (3)
+      AND VE.PREFIXOVEIC IN ('0002241','0002243','0002246','0002248')
+    GROUP BY 
+        L.CODIGOGA,
+        TRUNC(G.DAT_VIAGEM_GUIA, 'MM')
+),
+
+AJUSTE AS (
+    -- APLICA O AJUSTE DE PV NOS PASSAGEIROS
+    SELECT
+        P.CIDADE,
+        P.MES_ANO,
+        CASE 
+            WHEN P.CIDADE = 124 THEN P.PASSAGEIROS - NVL(PV.PASSAGEIROS, 0)
+            WHEN P.CIDADE = 240 THEN P.PASSAGEIROS + NVL(PV.PASSAGEIROS, 0)
+            ELSE P.PASSAGEIROS
+        END AS PASSAGEIROS_AJUSTADOS,
+        K.KM_OPERACIONAL
+    FROM P
+    LEFT JOIN K 
+           ON K.CIDADE  = P.CIDADE
+          AND K.MES_ANO = P.MES_ANO
+    LEFT JOIN PV 
+           ON PV.CIDADESAIDA = P.CIDADE
+          AND PV.MES_ANO     = P.MES_ANO
+)
+
+SELECT
+    CASE 
+        WHEN A.CIDADE = 31 THEN 'PARANOÁ / ITAPOÃ'
+        ELSE TO_CHAR(A.CIDADE)
+    END AS SETOR,
+    'IPK' AS OCORRENCIA,
+    TO_CHAR(A.MES_ANO, 'MM/YYYY') AS MES_ANO,
+    SUM(A.PASSAGEIROS_AJUSTADOS) AS PASSAGEIROS,
+    SUM(A.KM_OPERACIONAL)        AS KM,
+    ROUND(
+        SUM(A.PASSAGEIROS_AJUSTADOS) 
+        / NULLIF(SUM(A.KM_OPERACIONAL), 0),
+        3
+    ) AS IPK
+FROM AJUSTE A
+WHERE A.CIDADE = 31   -- ?? apenas PARANOÁ / ITAPOÃ (GA 31)
+GROUP BY 
+    A.CIDADE,
+    A.MES_ANO
+ORDER BY 
+    A.MES_ANO;
+------------------------------------------------------------------------------------------------
+Hora extra suplementar
+------------------------------------------------------------------------------------------------
+SELECT 
+    I.SEQ,
+    15.00 AS META,
+    I.MES_ANO,
+    I.CIDADES,
+    I.ATIVO,
+    ROUND(I.HE_HORAS, 2) AS TOTAL_HORAS_SUPLEMENTARES,
+    -- Média de horas para comparar com a META
+    ROUND(I.HE_HORAS / I.ATIVO, 2) AS MEDIA_HORAS_POR_FUNC,
+    I.HE_VALOR AS VALOR_TOTAL_PAGO
+FROM (
+    -- MÊS 1: JANEIRO/2025
+    SELECT 1 AS SEQ, '01/2025' AS MES_ANO,
+        CASE WHEN F.CODAREA = 1131 THEN 'SANTA MARIA' WHEN F.CODAREA = 1132 THEN 'GAMA'
+             WHEN F.CODAREA IN (1142, 1144) THEN 'ITAPOÃ / PARANOÁ' WHEN F.CODAREA = 1148 THEN 'SÃO SEBASTIÃO' END AS CIDADES,
+        SUM(E.VALORFICHA) AS HE_VALOR, SUM(TRUNC(E.REFERENCIA) + (MOD(E.REFERENCIA, 1) * 100 / 60)) AS HE_HORAS, COUNT(DISTINCT F.CODINTFUNC) AS ATIVO
+    FROM VW_FUNCIONARIOS F INNER JOIN FLP_FICHAEVENTOS E ON F.CODINTFUNC = E.CODINTFUNC
+    WHERE F.CODAREA IN (1131, 1132, 1142, 1144, 1148) AND F.SITUACAOFUNC = 'A' AND E.CODEVENTO = 97 AND TO_CHAR(E.COMPETFICHA, 'MM/YYYY') = '01/2025'
+    GROUP BY CASE WHEN F.CODAREA = 1131 THEN 'SANTA MARIA' WHEN F.CODAREA = 1132 THEN 'GAMA'
+             WHEN F.CODAREA IN (1142, 1144) THEN 'ITAPOÃ / PARANOÁ' WHEN F.CODAREA = 1148 THEN 'SÃO SEBASTIÃO' END
+
+    UNION ALL
+
+    -- MÊS 2: DEZEMBRO/2024
+    SELECT 2 AS SEQ, '12/2024' AS MES_ANO,
+        CASE WHEN F.CODAREA = 1131 THEN 'SANTA MARIA' WHEN F.CODAREA = 1132 THEN 'GAMA'
+             WHEN F.CODAREA IN (1142, 1144) THEN 'ITAPOÃ / PARANOÁ' WHEN F.CODAREA = 1148 THEN 'SÃO SEBASTIÃO' END AS CIDADES,
+        SUM(E.VALORFICHA) AS HE_VALOR, SUM(TRUNC(E.REFERENCIA) + (MOD(E.REFERENCIA, 1) * 100 / 60)) AS HE_HORAS, COUNT(DISTINCT F.CODINTFUNC) AS ATIVO
+    FROM VW_FUNCIONARIOS F INNER JOIN FLP_FICHAEVENTOS E ON F.CODINTFUNC = E.CODINTFUNC
+    WHERE F.CODAREA IN (1131, 1132, 1142, 1144, 1148) AND F.SITUACAOFUNC = 'A' AND E.CODEVENTO = 97 AND TO_CHAR(E.COMPETFICHA, 'MM/YYYY') = '12/2024'
+    GROUP BY CASE WHEN F.CODAREA = 1131 THEN 'SANTA MARIA' WHEN F.CODAREA = 1132 THEN 'GAMA'
+             WHEN F.CODAREA IN (1142, 1144) THEN 'ITAPOÃ / PARANOÁ' WHEN F.CODAREA = 1148 THEN 'SÃO SEBASTIÃO' END
+
+    UNION ALL
+
+    -- MÊS 3: NOVEMBRO/2024
+    SELECT 3 AS SEQ, '11/2024' AS MES_ANO,
+        CASE WHEN F.CODAREA = 1131 THEN 'SANTA MARIA' WHEN F.CODAREA = 1132 THEN 'GAMA'
+             WHEN F.CODAREA IN (1142, 1144) THEN 'ITAPOÃ / PARANOÁ' WHEN F.CODAREA = 1148 THEN 'SÃO SEBASTIÃO' END AS CIDADES,
+        SUM(E.VALORFICHA) AS HE_VALOR, SUM(TRUNC(E.REFERENCIA) + (MOD(E.REFERENCIA, 1) * 100 / 60)) AS HE_HORAS, COUNT(DISTINCT F.CODINTFUNC) AS ATIVO
+    FROM VW_FUNCIONARIOS F INNER JOIN FLP_FICHAEVENTOS E ON F.CODINTFUNC = E.CODINTFUNC
+    WHERE F.CODAREA IN (1131, 1132, 1142, 1144, 1148) AND F.SITUACAOFUNC = 'A' AND E.CODEVENTO = 97 AND TO_CHAR(E.COMPETFICHA, 'MM/YYYY') = '11/2024'
+    GROUP BY CASE WHEN F.CODAREA = 1131 THEN 'SANTA MARIA' WHEN F.CODAREA = 1132 THEN 'GAMA'
+             WHEN F.CODAREA IN (1142, 1144) THEN 'ITAPOÃ / PARANOÁ' WHEN F.CODAREA = 1148 THEN 'SÃO SEBASTIÃO' END
+
+    UNION ALL
+
+    -- MÊS 4: OUTUBRO/2024
+    SELECT 4 AS SEQ, '10/2024' AS MES_ANO,
+        CASE WHEN F.CODAREA = 1131 THEN 'SANTA MARIA' WHEN F.CODAREA = 1132 THEN 'GAMA'
+             WHEN F.CODAREA IN (1142, 1144) THEN 'ITAPOÃ / PARANOÁ' WHEN F.CODAREA = 1148 THEN 'SÃO SEBASTIÃO' END AS CIDADES,
+        SUM(E.VALORFICHA) AS HE_VALOR, SUM(TRUNC(E.REFERENCIA) + (MOD(E.REFERENCIA, 1) * 100 / 60)) AS HE_HORAS, COUNT(DISTINCT F.CODINTFUNC) AS ATIVO
+    FROM VW_FUNCIONARIOS F INNER JOIN FLP_FICHAEVENTOS E ON F.CODINTFUNC = E.CODINTFUNC
+    WHERE F.CODAREA IN (1131, 1132, 1142, 1144, 1148) AND F.SITUACAOFUNC = 'A' AND E.CODEVENTO = 97 AND TO_CHAR(E.COMPETFICHA, 'MM/YYYY') = '10/2024'
+    GROUP BY CASE WHEN F.CODAREA = 1131 THEN 'SANTA MARIA' WHEN F.CODAREA = 1132 THEN 'GAMA'
+             WHEN F.CODAREA IN (1142, 1144) THEN 'ITAPOÃ / PARANOÁ' WHEN F.CODAREA = 1148 THEN 'SÃO SEBASTIÃO' END
+) I
+ORDER BY I.SEQ, I.CIDADES;
+-------------------------------------------------------------------------------------------------------------------------

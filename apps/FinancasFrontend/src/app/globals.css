@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+/* Tailwind v4: o variant `dark:` por padrao segue prefers-color-scheme.
+   Esta linha faz com que ele siga a CLASSE `.dark` (o que o ThemeContext alterna). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* Paleta Pioneira (amarelos institucionais) */
+  --color-pioneira-50: #fffdf5;
+  --color-pioneira-100: #fef0d4;
+  --color-pioneira-200: #feeccc;
+  --color-pioneira-300: #ecd43c;
+  --color-pioneira-400: #fbcc2c;
+  --color-pioneira-500: #e6cd4a;
+  --color-pioneira-600: #d4cc54;
+  --color-pioneira-700: #a89642;
+  --color-pioneira-800: #7d6b1e;
+  --color-pioneira-900: #6b5d1a;
+  --color-pioneira-accent: #c7cd69;
+
+  /* Breakpoint customizado para o ponto onde o sidebar vira drawer */
+  --breakpoint-custom-md: 900px;
+
+  /* Animacoes */
+  --animate-spin-slow: spin 3s linear infinite;
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  .dark {
+    color-scheme: dark;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-gradient-to-br from-[#fffdf5] via-[#fef0d4] to-[#feeccc] text-gray-900;
+    @apply dark:from-gray-950 dark:via-gray-900 dark:to-neutral-900 dark:text-gray-100;
+    @apply transition-colors duration-500;
+    min-height: 100vh;
+  }
+}
+
+@utility border-3 {
+  border-width: 3px;
+}
+
+/* Scrollbar fina para sidebar */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(168, 150, 66, 0.3) transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: rgba(168, 150, 66, 0.3);
+  border-radius: 3px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(168, 150, 66, 0.5);
+}
+
+/* Barra de progresso do AvisoColapsavel (duração via --aviso-dur). */
+@keyframes aviso-barra {
+  from { transform: scaleX(1); }
+  to   { transform: scaleX(0); }
+}

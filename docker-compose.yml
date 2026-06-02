@@ -1,0 +1,142 @@
+name: pioneira-financas
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: pioneira-financas-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DATABASE_USER:-pioneira}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-pioneira_dev}
+      POSTGRES_DB: ${DATABASE_NAME:-pioneira_finance_db}
+      TZ: America/Sao_Paulo
+      PGTZ: America/Sao_Paulo
+    ports:
+      - "${DATABASE_PORT:-5435}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-pioneira} -d ${DATABASE_NAME:-pioneira_finance_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: pioneira-financas-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: pioneira-financas-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI (http://localhost:8025)
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pioneira-financas-pgadmin
+    restart: unless-stopped
+    profiles: ["tools"]
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@vpioneira.com.br
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "8080:80"
+    depends_on:
+      - postgres
+
+  # =================== APLICAÇÃO ===================
+  # Sobe junto com `docker compose --profile app up`.
+  # Para subir só infra (postgres/redis/mailhog) use `docker compose up`.
+
+  backend:
+    build:
+      context: .
+      dockerfile: apps/FinancasBackend/Dockerfile
+    image: pioneira/financas-backend:latest
+    container_name: pioneira-financas-backend
+    restart: unless-stopped
+    profiles: ["app"]
+    init: true   # init nativo do Docker (substitui tini, evita apt-get no build)
+    environment:
+      NODE_ENV: production
+      TZ: America/Sao_Paulo
+      BACKEND_HOST: 0.0.0.0
+      BACKEND_PORT: 3333
+      TRUST_PROXY: "true"
+      # Postgres acessado pelo nome do serviço (rede interna do compose).
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: ${DATABASE_USER:-pioneira}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-pioneira_dev}
+      DATABASE_NAME: ${DATABASE_NAME:-pioneira_finance_db}
+      DATABASE_SCHEMA: public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET no .env (openssl rand -base64 64)}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      SMTP_HOST: ${SMTP_HOST:-mailhog}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Pioneira Financas}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-nao-responda@vpioneira.com.br}
+      APP_URL: ${APP_URL:-http://localhost:3001}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      METRICS_EXCLUDED_PATHS: /health,/docs,/api/metrics/page-view
+      # ⚠ Oracle/Globus DESLIGADO por padrão no Docker (sem acesso à rede da empresa).
+      # Para habilitar, precisa de Instant Client + acesso ao Oracle 10.0.1.191.
+      ORACLE_ENABLED: ${ORACLE_ENABLED:-false}
+    ports:
+      - "${BACKEND_PORT_HOST:-3333}:3333"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: apps/FinancasFrontend/Dockerfile
+      args:
+        # ⚠ NEXT_PUBLIC_* é "baked" no build do Next.js. Define no .env antes de buildar
+        # ou passe via --build-arg.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3333}
+        NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-Pioneira Financas}
+    image: pioneira/financas-frontend:latest
+    container_name: pioneira-financas-frontend
+    restart: unless-stopped
+    profiles: ["app"]
+    init: true   # init nativo do Docker
+    environment:
+      NODE_ENV: production
+      TZ: America/Sao_Paulo
+      PORT: 3001
+      HOSTNAME: 0.0.0.0
+    ports:
+      - "${FRONTEND_PORT_HOST:-3001}:3001"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+    name: pioneira-financas-postgres-data
+  redis_data:
+    name: pioneira-financas-redis-data

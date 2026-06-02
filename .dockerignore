@@ -1,0 +1,47 @@
+# Build artifacts / caches
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/coverage
+**/.vitest
+**/*.tsbuildinfo
+
+# Logs e temporários
+**/*.log
+**/logs
+
+# IDE / OS
+.idea
+.vscode
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Env locais (nunca copiar para imagem)
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Docker / CI
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Documentação / pastas que não fazem parte do build
+Leia
+README.md
+**/*.md
+infra
+.claude
+
+# Arquivos pessoais / temporários
+TODO.md
+NOTES.md

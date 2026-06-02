@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# Turborepo
+.turbo/
+
+# Env files (NUNCA commitar segredos)
+.env
+.env.local
+.env.*.local
+.env.docker
+!.env.example
+!.env.docker.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code (pessoal)
+.claude/CLAUDE.md
+.claude/settings.local.json
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Plane (contém API tokens — manter fora do repo)
+Plane/
