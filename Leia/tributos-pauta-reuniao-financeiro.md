@@ -20,6 +20,12 @@ Dados que já levantamos (pra embasar as respostas):
 - A Pioneira **não é** optante do Simples (porte acima do teto) → Lucro Real/Presumido.
 - **34% dos pagamentos** não têm registro de liberação no Globus (ver
   `cp-workflow-liberacao-aprove-me.md`) — tema de controle, separado de tributos.
+- **Conferência corrigida (06/07/2026):** a heurística só se aplica a **NF de
+  serviço (NFS)** — as ~4.300 NF de mercadoria têm retenção zero *legítima* e
+  antes eram marcadas como divergentes por engano. Universo real = **69 NFS**,
+  das quais **17 divergências reais** — quase todas de **táxi aéreo/aviação**
+  (retiveram só CSLL, ou IRRF a 1% em vez de 1,5%). Vale levar essa lista pra
+  reunião: são casos concretos de retenção potencialmente a menor.
 
 ---
 
@@ -79,6 +85,20 @@ Perguntar:
 - Se o SFN gerar, é pra pagamento direto ou só pra conferência?
 - **Destrava:** funcionalidade #4 (DARF/GPS). Define se geramos arquivo pagável
   ou só um demonstrativo.
+
+### E. INSS patronal da folha — regime e fonte do valor real
+
+- O painel "Tributos da folha" mostra o INSS patronal como **estimativa**
+  (base × 28,8% = 20% CPP + 3% RAT + 5,8% terceiros). A empresa está no regime
+  **normal (CPP sobre a folha)** ou tem **desoneração (CPRB — contribuição sobre
+  a receita bruta)**? O transporte coletivo teve CPRB em vários períodos.
+- Onde está o **valor efetivamente recolhido** de GPS/INSS e DARF/IRRF da folha?
+  No Globus achamos `FLP_GPS_INTEGRACPG` e `FLP_DARF` populadas — se elas trazem
+  o recolhido (idealmente patronal separado do retido), a gente **troca a
+  estimativa pelo dado real** (script de exploração já pronto:
+  `explorar-globus-folha-guias.ts`).
+- **Destrava:** transformar o "INSS patronal (estimado)" em valor **certo** no
+  painel da folha, e fechar o cruzamento com as guias do mês.
 
 ### D. Calendário — fonte das datas
 - Confirmar com a contabilidade os **vencimentos exatos** de cada obrigação

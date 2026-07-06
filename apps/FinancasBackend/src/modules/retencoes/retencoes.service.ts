@@ -10,7 +10,13 @@ import { ALIQUOTAS_PADRAO } from '@pioneira/shared';
 import { ContaPagar } from '@/entities/conta-pagar.entity.js';
 
 const TOLERANCIA_CENTS = 1;  // 1 centavo de tolerancia para arredondamento
-const TIPOS_DOC_SUJEITOS = ['NF', 'NFE', 'NFV', 'NFS'];
+// So a NOTA FISCAL DE SERVICO (NFS) sofre retencao na fonte de PIS/COFINS/CSLL/IRRF.
+// NF/NFE/NFV sao MERCADORIA (produto nao tem retencao na fonte) e BOL/REC/AD/FIN nao
+// sao NF de servico. Inclui-los marcava ~4.300 titulos de retencao ZERO LEGITIMA como
+// "divergentes" (falso positivo) e, com o LIMIT, a tela mostrava o proprio teto como
+// total. Validado no banco (2026-07-06): NF 0/3887, NFV 1/405 com retencao vs NFS 69/69.
+// A validacao da heuristica (auditoria §7) sempre foi feita so sobre NFS.
+const TIPOS_DOC_SUJEITOS = ['NFS'];
 
 /**
  * Decide se um CP eh "aplicavel" pra retencao padrao (NF de servico PJ).
@@ -34,17 +40,15 @@ function ehAplicavel(cp: ContaPagar): { aplicavel: boolean; motivo?: string } {
 
 function calcular(cp: ContaPagar): ConferenciaRetencao {
   const valorBruto = Number(cp.valorBrutoCents);
-  // BASE DE CALCULO das retencoes = valor da NF ANTES das retencoes.
-  // valor_bruto_cents (vindo do Globus VLR_ORIGINAL) e o LIQUIDO a pagar
-  // (depois das retencoes). A base fiscal e: liquido + total das retencoes.
-  // Validado contra os 43 NFS reais em 28/05/2026: PIS/COFINS/CSLL/IRRF
-  // batem no centavo. Sem isso, a heuristica subestima em ~6,5% e marca
-  // 100% das NFS como divergentes (era o estado anterior do bug).
-  const totalRetencoesCents =
-    Number(cp.vlrInssCents ?? 0) + Number(cp.vlrIrrfCents ?? 0) +
-    Number(cp.vlrPisCents ?? 0) + Number(cp.vlrCofinsCents ?? 0) +
-    Number(cp.vlrCsllCents ?? 0) + Number(cp.vlrIssCents ?? 0);
-  const baseCalculo = valorBruto + totalRetencoesCents;
+  // BASE DE CALCULO das retencoes = o proprio valor BRUTO da NF (valor antes das
+  // retencoes). valor_bruto_cents vem do Globus VLR_TOTAL_ITENS (migration
+  // 1700000032000) e JA E o bruto/base fiscal — o retido de PIS bate no centavo com
+  // bruto*0,65% (validado no banco em 2026-07-06).
+  // ATENCAO historica: ate a migration 32000 esse campo era o LIQUIDO (VLR_ORIGINAL) e
+  // a base correta era liquido+retencoes. Quando o campo virou bruto, aquela formula
+  // (bruto + retencoes) passou a inflar a base em ~4% e marcava 100% das NFS como
+  // divergentes. Base correta agora = bruto puro.
+  const baseCalculo = valorBruto;
 
   const aplicabilidade = ehAplicavel(cp);
   const alertas: string[] = [];
@@ -55,12 +59,6 @@ function calcular(cp: ContaPagar): ConferenciaRetencao {
   // Aviso quando a base eh pequena (provavelmente isento de IRRF)
   if (baseCalculo < ALIQUOTAS_PADRAO.valorMinimoIrrfCents) {
     alertas.push(`Base abaixo do minimo IRRF (R$ ${(ALIQUOTAS_PADRAO.valorMinimoIrrfCents / 100).toFixed(2)})`);
-  }
-  // Informa a base usada quando ela difere do "bruto" exibido (= liquido)
-  if (totalRetencoesCents > 0 && aplicabilidade.aplicavel) {
-    alertas.push(
-      `Base de calculo R$ ${(baseCalculo / 100).toFixed(2)} = liquido R$ ${(valorBruto / 100).toFixed(2)} + retencoes R$ ${(totalRetencoesCents / 100).toFixed(2)}`,
-    );
   }
 
   // Calcula esperados (so se aplicavel) sobre a BASE CORRETA (= liquido + retencoes)
@@ -193,12 +191,14 @@ export function buildRetencoesService(fastify: FastifyInstance) {
         .andWhere('cp.excluido_em IS NULL')
         .andWhere('cp.origem_documento NOT IN (:...origens)', { origens: ['folha', 'guia'] })
         .andWhere('cp.valor_bruto_cents > 0')
-        // orderBy com leftJoinAndSelect + limit cai no caminho "combined select" do
-        // TypeORM, que resolve a coluna pela PROPERTY name (dataVencimento), nao pelo
-        // nome da coluna do banco. Usar 'cp.data_vencimento' aqui quebra com
-        // "Cannot read properties of undefined (reading 'databaseName')".
+        // Sem LIMIT: o universo de NFS e pequeno (~69 titulos) e `total`/
+        // `totalDivergenciaCents` PRECISAM refletir TODAS as divergencias, nao uma
+        // janela. O LIMIT 500 antigo, somado ao tipo errado (mercadoria incluida),
+        // fazia a tela mostrar "500" (o proprio teto) como total de divergentes.
+        // orderBy com leftJoinAndSelect cai no caminho "combined select" do TypeORM,
+        // que resolve a coluna pela PROPERTY name (dataVencimento), nao pela coluna do
+        // banco. Usar 'cp.data_vencimento' aqui quebra com "reading 'databaseName'".
         .orderBy('cp.dataVencimento', 'DESC')
-        .limit(500)
         .getMany();
 
       const conferencias = cps.map((cp) => calcular(cp));
