@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node scripts/ensure-next.mjs && next dev -p 3002",
-    "dev:turbo": "node scripts/ensure-next.mjs && next dev --turbo -p 3002",
+    "dev": "node scripts/dev.mjs",
+    "dev:turbo": "node scripts/dev.mjs --turbo",
     "build": "next build",
     "start": "next start -p 3002",
     "lint": "next lint --max-warnings 0",
