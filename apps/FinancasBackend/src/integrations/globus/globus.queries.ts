@@ -24,38 +24,18 @@
  * Ver documentacao completa em Leia/globus-tabelas-financeiras-documentacao.md
  */
 
-export const GLOBUS_QUERIES = {
-  /**
-   * Relatorio mensal: Compras x Pagamentos programados de NF x Carteira CPG.
-   *
-   * Binds:
-   *   :empresa     - NUMBER (codigo da empresa, ex: 4 para Pioneira)
-   *   :dt_ini      - DATE   (primeiro dia do mes)
-   *   :dt_fim_excl - DATE   (primeiro dia do mes seguinte, EXCLUSIVO)
-   *
-   * Colunas retornadas:
-   *   MES          - VARCHAR2 (nome do mes em portugues)
-   *   CODEMP       - NUMBER
-   *   NOME_EMPRESA - VARCHAR2
-   *   VLR_COMPRAS  - NUMBER   (NFs emitidas no mes)
-   *   VLR_PAG      - NUMBER   (parcelas de NF vencendo no mes)
-   *   VLR_VENCFIN  - NUMBER   (carteira CPG vencendo no mes)
-   *   PERC         - NUMBER   (VLR_PAG / VLR_VENCFIN * 100)
-   *   ENTRADADEFIN - NUMBER   (deficit: VLR_VENCFIN - VLR_PAG, minimo 0)
-   *
-   * Convertida de BETWEEN para >= AND < (semi-aberto) - mais seguro.
-   */
-  /**
-   * Lista titulos do Contas a Pagar (CPGDOCTO + CPGITDOC) com dados de
-   * fornecedor (FAVORECIDODOCTOCPG embutido no CPGDOCTO). Filtrado por
-   * empresa e vencimento (semi-aberto).
-   *
-   * Binds: :empresa, :dt_ini, :dt_fim_excl
-   *
-   * Granularidade: 1 linha por titulo CPG. Os itens (`CPGITDOC`) sao
-   * agregados em ARRAY/listagem futura; por enquanto soma de VALORITEMDOC.
-   */
-  contasAPagar: `
+/**
+ * Monta a query do Contas a Pagar parametrizando a COLUNA DE DATA da janela:
+ *  - 'VENCIMENTOCPG' (default): "o que VENCE no periodo".
+ *  - 'PAGAMENTOCPG':  "o que foi PAGO no periodo" (auditoria de caixa). Titulos
+ *    nao pagos tem PAGAMENTOCPG nulo e ficam de fora automaticamente.
+ *
+ * So o WHERE e o ORDER BY trocam de coluna — o SELECT mantem VENCIMENTOCPG AS
+ * DATA_VENCIMENTO e PAGAMENTOCPG AS DATA_PAGAMENTO nos dois modos. Mesmos binds
+ * (:empresa, :dt_ini, :dt_fim_excl), semi-aberto (dt_fim_excl EXCLUSIVO).
+ */
+function buildContasAPagarQuery(dataColuna: 'VENCIMENTOCPG' | 'PAGAMENTOCPG'): string {
+  return `
     SELECT /*+ NO_PARALLEL */
       D.CODDOCTOCPG          AS COD_DOCTO_CPG,
       D.CODIGOEMPRESA        AS CODIGO_EMPRESA,
@@ -101,8 +81,22 @@ export const GLOBUS_QUERIES = {
       D.CODMOVTOBCO          AS COD_MOVTO_BCO,
       -- Borderô / nº do documento bancario que liquidou (ex.: "BO-010260").
       MB.DOCMOVTOBCO         AS PAGAMENTO_DOC,
+      -- Remessa enviada ao banco (pagamento eletronico): numero + data. Titulos com a
+      -- MESMA conta+data+numero foram enviados juntos no MESMO arquivo de remessa.
+      -- Borderô/cheque/manual nao tem (NROREMESSAPE vazio). Ver CPGREMESSAPE.
+      D.NROREMESSAPE         AS NRO_REMESSA_PE,
+      D.DTREMESSAPE          AS DT_REMESSA_PE,
       D.MODALIDADEPE         AS MODALIDADE_PE,
       D.TIPODOCPAGTOCPG      AS TIPO_PAGTO,
+      -- Substituicao: CODDOCTOCPGSUBST preenchido = ESTE titulo foi substituido/
+      -- relancado, e o numero aponta pro CODDOCTOCPG do sucessor. O antigo NAO e
+      -- cancelado no Globus, entao duplicava na lista (SFN-48). O ETL marca
+      -- substituido=true e o exclui das somas, mantendo na lista com selo.
+      D.CODDOCTOCPGSUBST     AS COD_DOCTO_CPG_SUBST,
+      -- Confirmacao do pagamento eletronico: autenticacao (comprovante) + status PE
+      -- ('PG'=pago). NRDOCTORETBCOPE (retorno do banco) vem vazio na Pioneira, nao usar.
+      D.AUTELETRONICA        AS AUT_ELETRONICA,
+      D.STATUSPE             AS STATUS_PE,
       D.VLRINSSCPG           AS VLR_INSS,
       D.VLRIRRFCPG           AS VLR_IRRF,
       D.VLRPISCPG            AS VLR_PIS,
@@ -156,6 +150,36 @@ export const GLOBUS_QUERIES = {
          ) DOM2 WHERE ROWNUM = 1)) AS SETOR_NOME,
       (SELECT COUNT(DISTINCT II3.CODCUSTOFIN) FROM CPGITDOC II3
          WHERE II3.CODDOCTOCPG = D.CODDOCTOCPG AND II3.CODCUSTOFIN IS NOT NULL) AS QTD_SETORES,
+      -- Quebra do rateio: "codigo|nome|centavos" por unidade, separado por ';' (maior
+      -- valor primeiro). Parseado no ETL pra rateio_setores (JSONB) + setores_codigos
+      -- (pro filtro pegar o titulo em QUALQUER unidade). LISTAGG -> VARCHAR2(4000);
+      -- a Pioneira tem ~8 unidades, bem abaixo do limite.
+      (SELECT LISTAGG(G.CODCUSTOFIN || '|' || NVL(G.DESCRICAO, '') || '|' || TO_CHAR(ROUND(G.VALOR * 100)), ';')
+              WITHIN GROUP (ORDER BY G.VALOR DESC)
+       FROM (
+         SELECT IR.CODCUSTOFIN,
+                (SELECT CCR.DESCRICAO FROM CPGCUSTOS CCR WHERE CCR.CODIGO = IR.CODCUSTOFIN) AS DESCRICAO,
+                SUM(IR.VALORITEMDOC) AS VALOR
+         FROM CPGITDOC IR
+         WHERE IR.CODDOCTOCPG = D.CODDOCTOCPG AND IR.CODCUSTOFIN IS NOT NULL
+         GROUP BY IR.CODCUSTOFIN
+       ) G)                                 AS RATEIO_SETORES,
+      -- Quebra por CONTA CONTABIL (natureza da despesa): "classificador|nome|centavos"
+      -- por conta, ';' separando (maior valor 1o). Mesma mecanica do RATEIO_SETORES, mas
+      -- no eixo contabil. Item -> CPGITDOC.CODCONTACTB; descricao em CTBCONTA (CLASSIFICADOR
+      -- = codigo pontilhado ex "3.1.01.09.0603", NOMECONTA = nome ex "CONSERTOS E REFORMAS"),
+      -- join por CODCONTACTB + NROPLANO. Parseado no ETL pra rateio_contas (JSONB).
+      (SELECT LISTAGG(GC.CLASSIFICADOR || '|' || NVL(GC.NOMECONTA, '') || '|' || TO_CHAR(ROUND(GC.VALOR * 100)), ';')
+              WITHIN GROUP (ORDER BY GC.VALOR DESC)
+       FROM (
+         SELECT NVL(CCB.CLASSIFICADOR, TO_CHAR(IC.CODCONTACTB)) AS CLASSIFICADOR,
+                MAX(CCB.NOMECONTA) AS NOMECONTA,
+                SUM(IC.VALORITEMDOC) AS VALOR
+         FROM CPGITDOC IC
+         LEFT JOIN CTBCONTA CCB ON CCB.CODCONTACTB = IC.CODCONTACTB AND CCB.NROPLANO = IC.NROPLANO
+         WHERE IC.CODDOCTOCPG = D.CODDOCTOCPG AND IC.CODCONTACTB IS NOT NULL
+         GROUP BY NVL(CCB.CLASSIFICADOR, TO_CHAR(IC.CODCONTACTB))
+       ) GC)                                AS RATEIO_CONTAS,
       (SELECT SUM(I.VALORITEMDOC) FROM CPGITDOC I WHERE I.CODDOCTOCPG = D.CODDOCTOCPG) AS VLR_TOTAL_ITENS
     FROM CPGDOCTO D
     LEFT JOIN BGM_FORNECEDOR F ON F.CODIGOFORN = D.CODIGOFORN
@@ -167,10 +191,53 @@ export const GLOBUS_QUERIES = {
       -- Sem filtro de STATUSDOCTOCPG: cancelados (C) tambem vem, para que o
       -- adapter possa detectar exclusao no Globus (Sprint 2.3). ETL/UI filtram
       -- excluido_em IS NULL.
-      AND D.VENCIMENTOCPG  >= :dt_ini
-      AND D.VENCIMENTOCPG  <  :dt_fim_excl
-    ORDER BY D.VENCIMENTOCPG DESC, D.CODDOCTOCPG
-  `,
+      AND D.${dataColuna}  >= :dt_ini
+      AND D.${dataColuna}  <  :dt_fim_excl
+    ORDER BY D.${dataColuna} DESC, D.CODDOCTOCPG
+  `;
+}
+
+export const GLOBUS_QUERIES = {
+  /**
+   * Relatorio mensal: Compras x Pagamentos programados de NF x Carteira CPG.
+   *
+   * Binds:
+   *   :empresa     - NUMBER (codigo da empresa, ex: 4 para Pioneira)
+   *   :dt_ini      - DATE   (primeiro dia do mes)
+   *   :dt_fim_excl - DATE   (primeiro dia do mes seguinte, EXCLUSIVO)
+   *
+   * Colunas retornadas:
+   *   MES          - VARCHAR2 (nome do mes em portugues)
+   *   CODEMP       - NUMBER
+   *   NOME_EMPRESA - VARCHAR2
+   *   VLR_COMPRAS  - NUMBER   (NFs emitidas no mes)
+   *   VLR_PAG      - NUMBER   (parcelas de NF vencendo no mes)
+   *   VLR_VENCFIN  - NUMBER   (carteira CPG vencendo no mes)
+   *   PERC         - NUMBER   (VLR_PAG / VLR_VENCFIN * 100)
+   *   ENTRADADEFIN - NUMBER   (deficit: VLR_VENCFIN - VLR_PAG, minimo 0)
+   *
+   * Convertida de BETWEEN para >= AND < (semi-aberto) - mais seguro.
+   */
+  /**
+   * Lista titulos do Contas a Pagar (CPGDOCTO + CPGITDOC) com dados de
+   * fornecedor (FAVORECIDODOCTOCPG embutido no CPGDOCTO). Filtrado por
+   * empresa e vencimento (semi-aberto).
+   *
+   * Binds: :empresa, :dt_ini, :dt_fim_excl
+   *
+   * Granularidade: 1 linha por titulo CPG. Os itens (`CPGITDOC`) sao
+   * agregados em ARRAY/listagem futura; por enquanto soma de VALORITEMDOC.
+   */
+  contasAPagar: buildContasAPagarQuery('VENCIMENTOCPG'),
+
+  /**
+   * Variante do Contas a Pagar com a janela por DATA DE PAGAMENTO (PAGAMENTOCPG)
+   * em vez de vencimento. Usada na auditoria "o que foi PAGO no periodo": traz
+   * titulos pagos no intervalo independente de quando venceram. Titulos nao
+   * pagos tem PAGAMENTOCPG nulo e ficam de fora. Mesmos binds e colunas da
+   * `contasAPagar`. Ver SFN-47.
+   */
+  contasAPagarPorPagamento: buildContasAPagarQuery('PAGAMENTOCPG'),
 
   /**
    * Trilha de eventos do CP — GLOBUS.CPGDOCTO_HISTORICO_NEGOCIACOES.
@@ -642,6 +709,12 @@ export const GLOBUS_QUERIES = {
       M.VLMOVTOBCO         AS VALOR,
       M.CODHISTOBCO        AS COD_HISTO_BCO,
       H.DESCHISTOBCO       AS DESC_HISTO_BCO,
+      -- Sentido do movimento ('D'=debito/saida, 'C'=credito/entrada). Vem do
+      -- historico bancario (BCOHISTO). Necessario porque VLMOVTOBCO ja pode vir
+      -- negativo no Globus e o ETL grava valor_cents em modulo (abs): sem o D/C
+      -- o sinal se perde. Usado pra somar "pagamentos efetuados diretos no banco"
+      -- (despesa) com estornos (credito) liquidados corretamente.
+      H.DEBCREDHISTBCO     AS DEBITO_CREDITO,
       SUBSTR(M.HISTMOVTOBCO, 1, 500) AS HIST_MOVTO_BCO,
       M.DOCMOVTOBCO        AS DOC_MOVTO_BCO,
       M.CONFIRMADOMOVTOBCO AS CONFIRMADO,
@@ -800,5 +873,138 @@ export const GLOBUS_QUERIES = {
         AND  D.VENCIMENTOCPG  <  P4.DT_FIM_EXCL
         AND  D.CODIGOEMPRESA   = P4.EMPRESA
     ) F
+  `,
+
+  /**
+   * Depreciacao contabil (modulo Depreciacao — Fase 3, opcao "leitor por classe").
+   *
+   * A Pioneira NAO roda a rotina de ativo fixo do Globus (ATFITEM_DEPRECMES vazio):
+   * a depreciacao e calculada por fora (planilha) e apenas LANCADA na contabilidade,
+   * por classe de ativo. Logo a fonte de verdade e o razao (CTBSALDO), nao o ATF.
+   *
+   * Le CTBSALDO (saldo mensal por conta) das familias relevantes, para TODA a
+   * historia (tabela pequena — agregado mensal), juntando a CTBCONTA pra trazer
+   * CLASSIFICADOR (codigo pontilhado) + NOMECONTA. O consumo (ETL/service) separa:
+   *   - despesa de depreciacao:  CLASSIFICADOR '3.1.02.07.*'
+   *   - imobilizado bruto:       '1.3.02.01.*'
+   *   - direito de uso (arrend): '1.3.02.02.*'
+   *   - depreciacao acumulada:   '1.3.02.50.*' e '1.3.02.51.*'
+   *
+   * PERIODOSALDO e CHAR(6) 'AAAAMM'. Agrega VLDEBITOSALDO/VLCREDITOSALDO (a PK do
+   * CTBSALDO inclui CODTPLNC e CODIGOFL — somamos os dois pra ter o total da conta
+   * no mes, consolidado das filiais, igual a analise validada em 2026-07-03).
+   * Contas sinteticas ('.0000') vem na leitura mas sao descartadas no ETL pra nao
+   * duplicar (o pai repete a soma dos filhos).
+   *
+   * Binds: :empresa
+   */
+  depreciacaoContabil: `
+    SELECT /*+ NO_PARALLEL */
+      S.CODIGOEMPRESA          AS CODIGO_EMPRESA,
+      S.PERIODOSALDO           AS PERIODO,
+      S.NROPLANO               AS NRO_PLANO,
+      S.CODCONTACTB            AS COD_CONTA_CTB,
+      C.CLASSIFICADOR          AS CLASSIFICADOR,
+      C.NOMECONTA              AS NOME_CONTA,
+      SUM(S.VLDEBITOSALDO)     AS VL_DEBITO,
+      SUM(S.VLCREDITOSALDO)    AS VL_CREDITO
+    FROM   CTBSALDO S
+    JOIN   CTBCONTA C ON C.CODCONTACTB = S.CODCONTACTB AND C.NROPLANO = S.NROPLANO
+    WHERE  S.CODIGOEMPRESA = :empresa
+      AND (C.CLASSIFICADOR LIKE '3.1.02.07%'   -- despesa de depreciacao
+        OR C.CLASSIFICADOR LIKE '1.3.02.01%'   -- imobilizado bruto (proprio)
+        OR C.CLASSIFICADOR LIKE '1.3.02.02%'   -- direito de uso (arrend mercantil)
+        OR C.CLASSIFICADOR LIKE '1.3.02.50%'   -- depreciacao acumulada
+        OR C.CLASSIFICADOR LIKE '1.3.02.51%')  -- deprec acumulada de direito de uso
+    GROUP BY S.CODIGOEMPRESA, S.PERIODOSALDO, S.NROPLANO, S.CODCONTACTB,
+             C.CLASSIFICADOR, C.NOMECONTA
+    ORDER BY S.PERIODOSALDO DESC, C.CLASSIFICADOR
+  `,
+
+  /**
+   * Composicao da frota FISICA: contagem de veiculos ATIVOS por garagem e tipo
+   * (FRT_CADVEICULOS + FRT_TIPODEFROTA). Agregado pequeno — usado como contexto
+   * na tela de Depreciacao ("quantos veiculos"), NAO e o razao contabil.
+   *
+   * CONDICAOVEIC='A' = ativo. Garagens operacionais: 31, 124, 239, 240 (+ 4 matriz).
+   *
+   * Binds: :empresa
+   */
+  frotaComposicao: `
+    SELECT /*+ NO_PARALLEL */
+      V.CODIGOGA                                          AS GARAGEM_CODIGO,
+      NVL(TF.DESCRICAOTPFROTA, 'TIPO ' || V.CODIGOTPFROTA) AS TIPO_FROTA,
+      COUNT(*)                                            AS QTD
+    FROM   FRT_CADVEICULOS V
+    LEFT   JOIN FRT_TIPODEFROTA TF ON TF.CODIGOTPFROTA = V.CODIGOTPFROTA
+    WHERE  V.CODIGOEMPRESA = :empresa
+      AND  V.CONDICAOVEIC = 'A'
+    GROUP BY V.CODIGOGA, V.CODIGOTPFROTA, TF.DESCRICAOTPFROTA
+    ORDER BY V.CODIGOGA, QTD DESC
+  `,
+
+  /**
+   * GPS da folha (INSS) integrada ao Contas a Pagar — FLP_GPS_INTEGRACPG.
+   *
+   * Traz o INSS PATRONAL calculado pelo Globus, com e sem desoneracao
+   * (INSSEMPRESA_COMDESON x INSSEMPRESA_SEMDESON), a base de contribuicao e o
+   * retido. Usado pra trocar a ESTIMATIVA de 28,8% do painel "Tributos da folha"
+   * pelo dado REAL — a Pioneira esta em desoneracao (CPRB), entao o CPP sobre a
+   * folha e menor que 20%. `RETIDO` vem null aqui (retido do funcionario continua
+   * vindo da ficha_evento). Grao: uma linha por (empresa, filial, competencia,
+   * tipo de folha, identificador) — o ETL soma por competencia.
+   *
+   * PERIODO vem como TO_CHAR(...,'YYYYMM') pra evitar ambiguidade de timezone na
+   * conversao da DATE (a Pioneira grava a competencia no ultimo dia do mes).
+   *
+   * Binds: :empresa
+   */
+  folhaGpsIntegracpg: `
+    SELECT
+      G.CODIGOEMPRESA                     AS CODIGO_EMPRESA,
+      G.CODIGOFL                          AS CODIGO_FL,
+      TO_CHAR(G.COMPETENCIA, 'YYYYMM')    AS PERIODO,
+      G.TIPOFOLHA                         AS TIPO_FOLHA,
+      G.CODIDENT                          AS COD_IDENT,
+      G.TIPOIDENT                         AS TIPO_IDENT,
+      G.VALOR                             AS VALOR,
+      G.RETIDO                            AS RETIDO,
+      G.BASECONTRIB                       AS BASE_CONTRIB,
+      G.INSSEMPRESA_COMDESON              AS INSS_EMPRESA_COMDESON,
+      G.INSSEMPRESA_SEMDESON              AS INSS_EMPRESA_SEMDESON,
+      G.CODDOCTOCPG                       AS COD_DOCTO_CPG
+    FROM   FLP_GPS_INTEGRACPG G
+    WHERE  G.CODIGOEMPRESA = :empresa
+    ORDER BY G.COMPETENCIA DESC, G.CODIGOFL
+  `,
+
+  /**
+   * Baseline historico de orcamento (modulo Orcamento — Fase 4).
+   *
+   * CPGORCPREVISOES e a UNICA tabela de orcamento com dado (o subsistema
+   * CPG_CAD_ORCAMENTO_* esta vazio). Para a empresa 4 sao ~3.104 linhas, 2018-2020
+   * (parou em maio/2020 — motivo a confirmar). Le TODA a historia da empresa (tabela
+   * pequena). O valor mora em VALOR (VALORPREVISAO vem 0). Junta CPGCUSTOS pra trazer
+   * o nome do centro de custo (mesma tabela do "setor" do CP). Ver
+   * Leia/orcamento-mapeamento.md.
+   *
+   * Binds: :empresa
+   */
+  orcamentoPrevisoes: `
+    SELECT /*+ NO_PARALLEL */
+      P.CODINTORC                       AS COD_INT_ORC,
+      P.CODIGOEMPRESA                   AS CODIGO_EMPRESA,
+      P.CODIGOFL                        AS CODIGO_FL,
+      TO_CHAR(P.DATAPREVISAO,'YYYY-MM-DD') AS DATA_PREVISAO,
+      P.TIPORECEITA                     AS TIPO_RECEITA,
+      P.TIPODESPESA                     AS TIPO_DESPESA,
+      P.CCUSTOFINANC                    AS CCUSTOFINANC,
+      CC.DESCRICAO                      AS CENTRO_CUSTO_DESC,
+      P.VALOR                           AS VALOR,
+      P.JUSTIFICATIVA                   AS JUSTIFICATIVA
+    FROM   CPGORCPREVISOES P
+    LEFT   JOIN CPGCUSTOS CC ON CC.CODIGO = P.CCUSTOFINANC
+    WHERE  P.CODIGOEMPRESA = :empresa
+    ORDER BY P.DATAPREVISAO DESC
   `,
 } as const;

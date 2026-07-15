@@ -35,6 +35,18 @@ import { SetorGlobusCustofin1700000030000 } from './1700000030000-setor-globus-c
 import { FornecedorFiscal1700000031000 } from './1700000031000-fornecedor-fiscal.js';
 import { CpValorBrutoItens1700000032000 } from './1700000032000-cp-valor-bruto-itens.js';
 import { CpBancoBorderoFavorecido1700000033000 } from './1700000033000-cp-banco-bordero-favorecido.js';
+import { CpSubstituicaoRetorno1700000034000 } from './1700000034000-cp-substituicao-retorno.js';
+import { CpDevolucaoBancaria1700000035000 } from './1700000035000-cp-devolucao-bancaria.js';
+import { CpRemessaPe1700000036000 } from './1700000036000-cp-remessa-pe.js';
+import { CpRateioSetores1700000037000 } from './1700000037000-cp-rateio-setores.js';
+import { Reembolsos1700000038000 } from './1700000038000-reembolsos.js';
+import { CpRateioContas1700000039000 } from './1700000039000-cp-rateio-contas.js';
+import { Depreciacao1700000040000 } from './1700000040000-depreciacao.js';
+import { FolhaGps1700000041000 } from './1700000041000-folha-gps.js';
+import { PerguntasFinanceiro1700000042000 } from './1700000042000-perguntas-financeiro.js';
+import { FolhaReclassificaEventosAc1700000044000 } from './1700000044000-folha-reclassifica-eventos-ac.js';
+import { OrcamentoBaseline1700000045000 } from './1700000045000-orcamento-baseline.js';
+import { FrotaComposicao1700000046000 } from './1700000046000-frota-composicao.js';
 
 export const MIGRATIONS = [
   InitialIdentityAndAudit1700000001000,
@@ -70,4 +82,16 @@ export const MIGRATIONS = [
   FornecedorFiscal1700000031000,
   CpValorBrutoItens1700000032000,
   CpBancoBorderoFavorecido1700000033000,
+  CpSubstituicaoRetorno1700000034000,
+  CpDevolucaoBancaria1700000035000,
+  CpRemessaPe1700000036000,
+  CpRateioSetores1700000037000,
+  Reembolsos1700000038000,
+  CpRateioContas1700000039000,
+  Depreciacao1700000040000,
+  FolhaGps1700000041000,
+  PerguntasFinanceiro1700000042000,
+  FolhaReclassificaEventosAc1700000044000,
+  OrcamentoBaseline1700000045000,
+  FrotaComposicao1700000046000,
 ];

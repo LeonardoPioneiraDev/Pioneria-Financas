@@ -36,6 +36,11 @@ import { boletosPixModule } from '@/modules/boletos-pix/boletos-pix.routes.js';
 import { serasaModule } from '@/modules/serasa/serasa.routes.js';
 import { conciliacaoModule } from '@/modules/conciliacao/conciliacao.routes.js';
 import { tributosModule } from '@/modules/tributos/tributos.routes.js';
+import { recebiveisModule } from '@/modules/recebiveis/recebiveis.routes.js';
+import { reembolsosModule } from '@/modules/reembolsos/reembolsos.routes.js';
+import { depreciacaoModule } from '@/modules/depreciacao/depreciacao.routes.js';
+import { orcamentoModule } from '@/modules/orcamento/orcamento.routes.js';
+import { perguntasModule } from '@/modules/perguntas/perguntas.routes.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -141,6 +146,11 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(serasaModule, { prefix: '/api/serasa' });
   await app.register(conciliacaoModule, { prefix: '/api/conciliacao' });
   await app.register(tributosModule, { prefix: '/api/tributos' });
+  await app.register(recebiveisModule, { prefix: '/api/recebiveis' });
+  await app.register(reembolsosModule, { prefix: '/api/reembolsos' });
+  await app.register(depreciacaoModule, { prefix: '/api/depreciacao' });
+  await app.register(orcamentoModule, { prefix: '/api/orcamento' });
+  await app.register(perguntasModule, { prefix: '/api/perguntas' });
 
   app.setErrorHandler((err, req, reply) => {
     req.log.error({ err, reqId: req.id }, 'Erro nao tratado');
