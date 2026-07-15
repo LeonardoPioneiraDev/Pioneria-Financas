@@ -27,6 +27,12 @@ export interface ModuloInfo {
   features: ReadonlyArray<{ ok: boolean; texto: string }>;
   /** Fontes de dados que alimentam o modulo (Globus, BCB, horarios, manual…). */
   fontesDados?: ReadonlyArray<string>;
+  /**
+   * O que a exploracao dos dados JA revelou — fatos OBSERVADOS (nao interpretacao).
+   * Serve pra separar o que sabemos do que ainda e pergunta em aberto. Mostrado
+   * como card proprio no placeholder. Regra do projeto: nao concluir em silencio.
+   */
+  achados?: ReadonlyArray<string>;
   /** Perguntas chave que o financeiro precisa responder pra priorizarmos. */
   perguntasFinanceiro?: ReadonlyArray<string>;
   /** Estimativa rapida de esforco (apenas referencia). */
@@ -69,19 +75,18 @@ export const MODULOS: Record<string, ModuloInfo> = {
 
   '/contas-receber': {
     href: '/contas-receber',
-    nome: 'Contas a Receber',
+    nome: 'Recebíveis',
     status: 'pronto',
     fase: 'Em produção',
-    descricao: 'Carteira de CR do Globus (CRCDOCTO) com cobrança eletrônica + régua + boleto/PIX + SERASA.',
+    descricao: 'Dinheiro que entrou no extrato bancário (BCOMOVTO/Globus), classificado por origem: repasse GDF, quitação de clientes (via conciliação) e outras fontes.',
     features: [
-      { ok: true, texto: 'Sync automático do Globus (CRCDOCTO + CRCITDOC + BGM_CLIENTE)' },
-      { ok: true, texto: 'Filtros e listagem' },
-      { ok: true, texto: 'Status de cobrança eletrônica' },
-      { ok: true, texto: 'Régua de cobrança automática (templates + envios — em validação)' },
-      { ok: true, texto: 'Geração de boleto / PIX (MOCK — em validação, depende confirmar bancos)' },
-      { ok: true, texto: 'Integração SERASA (MOCK — em validação, depende contrato SERASA)' },
+      { ok: true, texto: 'Créditos do extrato (banco_movto) por período e conta' },
+      { ok: true, texto: 'Classificação por origem: GDF · Clientes · Outras (heurística — em validação)' },
+      { ok: true, texto: 'Top fontes de "Outras" pelo histórico bancário' },
+      { ok: true, texto: 'Atualização do extrato do Globus sob demanda' },
+      { ok: false, texto: 'Visão de cobrança (títulos a receber CRCDOCTO) — preservada e desativada (reativável)' },
     ],
-    fontesDados: ['Globus CRCDOCTO', 'Globus CRCITDOC', 'Globus BGM_CLIENTE'],
+    fontesDados: ['Globus BCOMOVTO', 'Conciliação bancária', 'Globus BCOCONTA'],
   },
 
   '/recebiveis-gdf': {
@@ -110,74 +115,84 @@ export const MODULOS: Record<string, ModuloInfo> = {
   '/conciliacao': {
     href: '/conciliacao',
     nome: 'Conciliação Bancária',
-    status: 'parcial',
-    fase: 'Em construção',
-    descricao: 'Auto-match entre extrato bancário (BCOMOVTO) e títulos (CP/CR).',
+    status: 'pronto',
+    fase: 'Em produção',
+    descricao: 'Espelho da conciliação do Globus: cada lançamento do extrato (BCOMOVTO) e o título que o Globus já vinculou (cod_movto_bco → CP). O sistema só mostra, não faz matching.',
     features: [
-      { ok: true, texto: 'Sync de movimento bancário (BCOMOVTO já sincronizado)' },
-      { ok: true, texto: 'Match automático extrato × título (data ±3d + valor exato)' },
-      { ok: true, texto: 'Dashboard de conciliação (sugeridas, confirmadas, sem par)' },
-      { ok: true, texto: 'Confirmar / rejeitar sugestão' },
+      { ok: true, texto: 'Lançamentos do banco (BCOMOVTO) com flag conciliado do Globus' },
+      { ok: true, texto: 'Título a pagar vinculado pelo Globus (cod_movto_bco → CPGDOCTO)' },
+      { ok: true, texto: 'Abas Identificados / Falta identificar + filtro por conta e busca' },
+      { ok: true, texto: 'Contas bancárias com saldo e agregados' },
+      { ok: false, texto: 'Vínculo de crédito → Conta a Receber (depende sincronizar CRCDOCTO.CODMOVTOBCO)' },
       { ok: false, texto: 'Importação CNAB de retorno' },
-      { ok: false, texto: 'Conciliação manual com sugestões refinadas' },
-      { ok: false, texto: 'Detecção de divergências (juros, taxas, glosa)' },
-      { ok: false, texto: 'Saldo conciliado por conta bancária' },
+      { ok: false, texto: 'Motor de matching próprio (preservado/desativado — reativável)' },
     ],
-    fontesDados: ['Globus BCOMOVTO', 'Globus BCOCONTA', 'finance.contas_pagar', 'finance.contas_receber'],
+    fontesDados: ['Globus BCOMOVTO', 'Globus BCOCONTA', 'finance.contas_pagar'],
     perguntasFinanceiro: [
-      'Quanto tempo demora a conciliação hoje?',
-      'Qual o critério atual pra "match" entre extrato e título?',
-      'Vocês já têm acesso aos retornos CNAB dos bancos?',
+      'A conciliação do Globus é confiável o bastante pra ser a fonte única aqui?',
+      'Os créditos (recebimentos) também têm vínculo de movimento no Globus (CRCDOCTO)?',
     ],
-    estimativaSemanas: 4,
+    estimativaSemanas: 0,
   },
 
   '/tributos': {
     href: '/tributos',
     nome: 'Tributos',
-    status: 'parcial',
-    fase: 'Fase 2 (Tributário e Folha)',
-    descricao: 'Apuração de PIS, COFINS, ISS, INSS, IRRF e geração de guias.',
+    status: 'pronto',
+    fase: 'Em produção',
+    descricao: 'Retenções na fonte, tributos da folha e calendário/guias. Apuração própria, DARF/GPS e SPED são feitos fora do sistema (contador/fisco).',
     features: [
-      { ok: true, texto: 'Conferência de retenções na fonte — PIS/COFINS/CSLL/IRRF (heurística Lucro Real, base líquido+retenções, ciente do Simples Nacional)' },
+      { ok: true, texto: 'Conferência de retenções na fonte — PIS/COFINS/CSLL/IRRF (heurística Lucro Real, base = valor bruto da NF, ciente do Simples Nacional)' },
+      { ok: true, texto: 'Tributos da folha — INSS, FGTS e IRRF reais da folha (FLP) por tipo de folha; INSS patronal real via GPS do Globus (FLP_GPS, com/sem desoneração), com fallback estimado' },
       { ok: true, texto: 'Calendário tributário (referência) — prazos federais padrão + cruzamento com as guias do mês no banco' },
       { ok: true, texto: 'Transparência das fontes — mostra, por dado, se está preenchido no Globus, vazio, ou feito fora dele (o sistema reflete o Globus, não inventa)' },
-      { ok: false, texto: 'INSS / ISS calculados (hoje informativos — Globus registra zero; depende de política do financeiro)' },
-      { ok: false, texto: 'Apuração mensal de PIS/COFINS (própria) — depende Q1-Q3' },
-      { ok: false, texto: 'ISS por município (cálculo) — depende tabela de alíquotas + política de retenção' },
-      { ok: false, texto: 'Geração de DARF/GPS — depende Q1-Q3' },
-      { ok: false, texto: 'Cruzamento com SPED Fiscal — depende Q1-Q3' },
+      // FORA DE ESCOPO (decisão jul/2026 — "todas as respostas do financeiro = não").
+      // Não exibidos como pendência para não parecerem "a fazer" num módulo Em produção;
+      // a explicação vive no card verde do roadmap + Leia/tributos-auditoria-inicial.md §11.
+      // Reabrir (voltar como { ok: false }) se a política do financeiro mudar.
+      // { ok: false, texto: 'INSS / ISS calculados sobre NF — fora de escopo: o Globus registra zero de verdade (dado, não bug); calcular geraria falso divergente' },
+      // { ok: false, texto: 'Apuração própria de PIS/COFINS — fora de escopo: feita fora do sistema (contador); a ECF do Globus é anual/defasada' },
+      // { ok: false, texto: 'ISS por município — fora de escopo: municipal, sem política de retenção definida pela Pioneira' },
+      // { ok: false, texto: 'Geração de DARF/GPS — fora de escopo: recolhimento feito fora do sistema (contador/fisco)' },
+      // { ok: false, texto: 'Cruzamento com SPED Fiscal — fora de escopo: sem fonte externa a integrar' },
     ],
-    fontesDados: ['Globus CPGDOCTO (retenções)', 'Globus BGM_FORNECEDOR (regime/município)', 'Globus CTB_ECF_* (apuração/SPED)', 'Manual'],
-    perguntasFinanceiro: [
-      'Quem hoje apura PIS/COFINS na empresa?',
-      'Vocês usam algum sistema externo de gestão tributária?',
-      'Quais tributos são prioridade — recorrentes (mensais) ou pontuais?',
+    fontesDados: ['Globus CPGDOCTO (retenções)', 'Globus BGM_FORNECEDOR (regime/município)', 'Globus finance.ficha_evento + FLP_GPS (folha)', 'Globus origem=guia (calendário)'],
+    achados: [
+      'Decisão de escopo (jul/2026): as perguntas ao financeiro (quem apura, sistema externo, prioridade) ficaram sem resposta; a orientação foi tratar todas como "não".',
+      'Com isso, apuração própria de PIS/COFINS, DARF/GPS, SPED e ISS por município ficam FORA do escopo deste sistema — são feitos fora (contador/fisco), não são pendência de desenvolvimento.',
+      'O que depende do Globus já reflete o Globus automaticamente. Se a política mudar, o item correspondente é reaberto.',
     ],
-    estimativaSemanas: 6,
   },
 
   '/depreciacao': {
     href: '/depreciacao',
     nome: 'Depreciação',
-    status: 'planejado',
-    fase: 'Fase 3 (Ativo Imobilizado)',
-    descricao: 'Depreciação contábil da frota (ônibus) e outros ativos.',
+    status: 'pronto',
+    fase: 'Em produção',
+    descricao: 'Depreciação contábil lançada no Globus, por classe de ativo. O Globus não tem ativo fixo por bem — a depreciação é calculada em planilha e escriturada por classe; o sistema espelha o valor oficial.',
     features: [
-      { ok: false, texto: 'Cadastro de ativos (Globus FRT_CADVEICULOS + outros)' },
-      { ok: false, texto: 'Cálculo de depreciação linear automático' },
-      { ok: false, texto: 'Valor residual e vida útil por categoria' },
-      { ok: false, texto: 'Lançamento contábil mensal' },
-      { ok: false, texto: 'Baixa de ativos (venda, sucata)' },
-      { ok: false, texto: 'Relatório por garagem / centro de custo' },
+      { ok: true, texto: 'Depreciação contábil por classe (CTBSALDO do Globus)' },
+      { ok: true, texto: 'Despesa mensal de depreciação por classe de ativo' },
+      { ok: true, texto: 'Base de ativos: bruto, direito de uso, depreciação acumulada e líquido' },
+      { ok: true, texto: 'Evolução mensal da despesa (com ajuste de fechamento e meses não lançados explícitos)' },
+      { ok: true, texto: 'Rastreabilidade: detalhe por classe com as contas do razão (débito/crédito) + "Fontes e método"' },
+      // FORA DE ESCOPO (decisão jul/2026 — não priorizado; e "respostas do financeiro = não").
+      // O razão (o que a tela lê) tem depreciação só por CLASSE. O Globus TEM cadastro de bens
+      // vivo (ATFITEM ~2,5k bens, com valor/taxa/início/garagem/CC) mas NÃO roda a depreciação —
+      // então B e por-garagem exigiriam o sistema CALCULAR a deprec por bem (linear c/ teto 100%,
+      // reconciliando com o razão), o que rompe a premissa deste módulo ("espelha, não recalcula").
+      // Não exibidos como pendência para não parecerem "a fazer" num módulo Em produção.
+      // Reabrir (voltar como { ok: false }) se decidirem construir o módulo de patrimônio.
+      // { ok: false, texto: 'Depreciação por bem/veículo (opção B) — fora de escopo: exige calcular por bem (ATFITEM), não só espelhar; não priorizado' },
+      // { ok: false, texto: 'Relatório por garagem / centro de custo — fora de escopo: derivável só via opção B (cada bem tem garagem/CC no cadastro)' },
+      // { ok: false, texto: 'Cadastro e baixa de ativos in-system (opção C) — fora de escopo: módulo de patrimônio próprio, não priorizado' },
     ],
-    fontesDados: ['Globus FRT_CADVEICULOS', 'Globus FRT_COMPRAVEIC', 'Globus CTBLANCA'],
-    perguntasFinanceiro: [
-      'Hoje a depreciação é feita em qual sistema/planilha?',
-      'Qual a vida útil que vocês usam para ônibus (5, 7, 10 anos)?',
-      'Existem ativos não-frota relevantes a depreciar?',
+    fontesDados: ['Globus CTBSALDO', 'Globus CTBCONTA'],
+    achados: [
+      'O razão contábil (o que a tela reflete) tem depreciação só por CLASSE — calculada em planilha pelo financeiro e lançada no Globus. O Globus NÃO roda a depreciação (rotina ATF vazia).',
+      'O cadastro de bens existe e está vivo (ATFITEM, ~2,5 mil bens da empresa 4, com valor/taxa/início/garagem/centro de custo). Logo depreciação por veículo (opção B) e por garagem SÃO viáveis — mas exigiriam o sistema CALCULAR a deprec por bem (linear com teto de 100%, reconciliando com os ~R$39k/mês do razão), fugindo da premissa "espelha, não recalcula".',
+      'Decisão (jul/2026): B, por-garagem e cadastro/baixa in-system (opção C) ficam FORA do escopo — não priorizados (SFN-55 no backlog). A frota própria já está quase toda depreciada; a arrendada não é depreciada no razão (custo = contraprestação 3.1.02.04/05). Reabrir se decidirem construir o patrimônio.',
     ],
-    estimativaSemanas: 3,
   },
 
   '/fluxo-caixa': {
@@ -206,22 +221,34 @@ export const MODULOS: Record<string, ModuloInfo> = {
   '/orcamento': {
     href: '/orcamento',
     nome: 'Orçamento',
-    status: 'planejado',
+    status: 'parcial',
     fase: 'Fase 4 (Planejamento)',
-    descricao: 'Orçamento anual com acompanhamento de realizado vs planejado.',
+    descricao: 'Orçamento com acompanhamento de realizado vs planejado. Orçado sugerido (base técnica projetada do realizado) e baseline histórico do Globus já no ar; o orçado OFICIAL e a comparação dependem do financeiro validar o eixo.',
     features: [
-      { ok: false, texto: 'Cadastro do orçamento anual por centro de custo' },
-      { ok: false, texto: 'Importação Globus (CPG_CAD_ORCAMENTO)' },
-      { ok: false, texto: 'Comparativo realizado vs orçado mensal' },
+      { ok: true, texto: 'Orçado sugerido (base técnica) — média mensal do realizado por setor nos últimos 12 meses (Contas a Pagar), estado projetado, para o financeiro ajustar' },
+      { ok: true, texto: 'Baseline histórico do Globus (CPGORCPREVISOES, 2018–2020) — orçado por ano e centro de custo, como referência e isca pro financeiro' },
+      { ok: false, texto: 'Cadastro / importação / aceite do orçado OFICIAL (CSV, tela ou aceitar a base técnica) — ⏳ aguardando eixo e formato do financeiro' },
+      { ok: false, texto: 'Comparativo realizado vs orçado mensal (realizado já disponível no Contas a Pagar)' },
       { ok: false, texto: 'Sinalização de estouro (>110%)' },
       { ok: false, texto: 'Workflow de aprovação de revisão' },
       { ok: false, texto: 'Exportação para diretoria' },
     ],
-    fontesDados: ['Globus CPG_CAD_ORCAMENTO', 'Globus CPG_CAD_ORCAMENTO_PREVISOES'],
+    fontesDados: [
+      'finance.contas_pagar (realizado por centro de custo — pronto)',
+      'Orçado: a definir (planilha do financeiro / CSV / tela)',
+      'Globus CPGORCPREVISOES (histórico até 2020 — referência)',
+    ],
+    achados: [
+      'O realizado por centro de custo já está no sistema (Contas a Pagar, via CODCUSTOFIN) — o comparativo reusa isso.',
+      'No Globus, a tabela que a documentação apontava (CPG_CAD_ORCAMENTO) está vazia; o orçamento ficava em CPGORCPREVISOES.',
+      'Nessa tabela há orçamento da Pioneira lançado até 2020 (2018: R$ 509M · 2019: R$ 585M · 2020: R$ 41M, parou em maio). De 2021 em diante não há lançamentos — o motivo ainda não sabemos.',
+      'Quando existia, o orçado do Globus era pouco detalhado (praticamente uma unidade só + linhas sem centro de custo) e diário — mais parecido com previsão de caixa do que orçamento anual por conta.',
+    ],
     perguntasFinanceiro: [
-      'Vocês fazem orçamento anual ou trimestral?',
-      'Como acompanham realizado vs orçado hoje?',
-      'Quantos centros de custo? Por garagem ou mais granular?',
+      'Vocês fazem orçamento hoje? Anual ou trimestral? Onde ele vive (planilha, sistema)?',
+      'O orçamento que existe no Globus até 2020 foi descontinuado, virou planejamento plurianual, ou migrou pra outro lugar?',
+      'Qual o eixo do orçamento de vocês: por unidade/garagem, por tipo de despesa (conta contábil) ou por centro de custo?',
+      'Podem compartilhar a planilha atual? O formato dela é o que o sistema vai espelhar.',
     ],
     estimativaSemanas: 6,
   },
@@ -231,20 +258,31 @@ export const MODULOS: Record<string, ModuloInfo> = {
     nome: 'DRE',
     status: 'planejado',
     fase: 'Fase 4 (Planejamento)',
-    descricao: 'Demonstração de Resultado do Exercício gerencial e contábil.',
+    descricao: 'Demonstração de Resultado do Exercício, contábil e gerencial. O dado de base (razão contábil do Globus) já está no sistema — módulo tecnicamente viável; falta definir com o financeiro o desenho das linhas e a visão gerencial.',
     features: [
-      { ok: false, texto: 'DRE contábil mensal (do plano de contas Globus)' },
+      { ok: false, texto: 'DRE contábil mensal (do razão contábil do Globus — dado disponível)' },
       { ok: false, texto: 'DRE gerencial (visão de resultado operacional)' },
       { ok: false, texto: 'Comparativo mensal e YTD' },
-      { ok: false, texto: 'Drill-down de cada linha até título' },
+      { ok: false, texto: 'Drill-down de cada linha até o título/lançamento' },
       { ok: false, texto: 'Exportação Excel/PDF' },
       { ok: false, texto: 'Visão por garagem (centro de custo)' },
     ],
-    fontesDados: ['Globus CTBCDDRE', 'Globus CTBITDRE', 'Globus CTBLANCA', 'Globus CTBITLNC'],
+    fontesDados: [
+      'Globus CTBSALDO (razão — saldo mensal por conta, já sincronizado na Depreciação)',
+      'Globus CTBCDDRE + CTBITDRE (estrutura da DRE — a confirmar se está preenchida)',
+      'Globus CTBLANCA + CTBITLNC (lançamentos, para o drill-down)',
+      'finance.contas_pagar (realizado por centro de custo — pronto)',
+    ],
+    achados: [
+      'O razão contábil do Globus (CTBSALDO/CTBLANCA/CTBITLNC) está populado e já é lido pelo sistema — usamos ele no módulo Depreciação.',
+      'Uma DRE contábil é calculável hoje: basta agrupar as contas de resultado (classe 3 = despesa, 4 = receita) por linha e somar o saldo mensal.',
+      'O Globus tem tabelas de estrutura de DRE (CTBCDDRE/CTBITDRE) que, se preenchidas, dão o desenho oficial das linhas — a confirmar se a Pioneira as usa.',
+      'O módulo Depreciação já sincroniza o CTBSALDO (subconjunto); a DRE estende o mesmo pipeline para as contas de resultado. Reuso alto.',
+    ],
     perguntasFinanceiro: [
-      'A estrutura de DRE atual do Globus atende ou precisa ser refeita?',
-      'Quem é o público — diretoria, conselho, acionista, contadora externa?',
-      'Precisa visão gerencial diferente da contábil?',
+      'A estrutura de DRE atual do Globus atende, ou vocês montam a DRE por fora (planilha/contadora)?',
+      'Quem é o público — diretoria, conselho, acionista, contadora externa? (define detalhe e formato do export)',
+      'Precisa de visão gerencial diferente da contábil? Se sim, quais reagrupamentos (ex.: separar receita técnica de repasse GDF, custo por km)?',
     ],
     estimativaSemanas: 4,
   },
@@ -297,23 +335,24 @@ export const MODULOS: Record<string, ModuloInfo> = {
 
   '/folha': {
     href: '/folha',
-    nome: 'Folha (CPG)',
+    nome: 'Encargos & Benefícios',
     status: 'pronto',
     fase: 'Em produção',
-    descricao: 'Folha como contas a pagar — visão do fluxo financeiro da folha.',
+    descricao: 'Custo da folha do RH (FLP): encargos (INSS/FGTS/IRRF), benefícios (ticket, cesta, seguro) e descontos (adiantamento, consignados, sindicato, pensão) — cada número rastreável à verba. Mais o repasse de pensão que a folha gera no Contas a Pagar.',
     features: [
-      { ok: true, texto: 'Identificação automática de títulos de folha' },
-      { ok: true, texto: 'Classificação por tipo (salário, 13º, férias, INSS, FGTS)' },
-      { ok: true, texto: 'Agregação por competência' },
-      { ok: true, texto: 'Retenções detalhadas' },
+      { ok: true, texto: 'Encargos e benefícios agregados da folha real (finance.ficha_evento), por evento' },
+      { ok: true, texto: 'Totais autoritativos (proventos 318 / descontos 319 / líquido) + rastreio por verba' },
+      { ok: true, texto: 'Filtro por tipo de folha (mensal, adiantamento, 13º, férias, rescisão)' },
+      { ok: true, texto: 'Repasse de pensão no CP com aging (vencido / a vencer / pago)' },
+      { ok: false, texto: 'INSS patronal (guia GPS) — hoje recolhido fora da folha, ver Tributos' },
       { ok: false, texto: 'Geração de remessa bancária dos pagamentos' },
     ],
-    fontesDados: ['Globus CPGDOCTO (origem=folha)'],
+    fontesDados: ['Globus FLP_FICHAEVENTOS', 'Globus FLP_EVENTOS', 'Globus CPGDOCTO (pensão/origem=folha)'],
   },
 
   '/folha-detalhe': {
     href: '/folha-detalhe',
-    nome: 'Folha por Setor',
+    nome: 'Custo por Setor',
     status: 'pronto',
     fase: 'Em produção',
     descricao: 'Decomposição operacional da folha por setor/garagem/função.',
@@ -322,10 +361,10 @@ export const MODULOS: Record<string, ModuloInfo> = {
       { ok: true, texto: 'Proventos, descontos, líquido por setor' },
       { ok: true, texto: 'FGTS, INSS, IRRF, VT, VA agregados' },
       { ok: true, texto: 'Drill-down funcionário → contracheque' },
-      { ok: true, texto: 'Filtro por tipo de folha (mensal, adiantamento, rescisão)' },
-      { ok: false, texto: 'Comparativo competências (mês anterior)' },
-      { ok: false, texto: 'Provisão de férias e 13º' },
-      { ok: false, texto: 'Custo total por funcionário (com encargos)' },
+      { ok: true, texto: 'Filtro por tipo de folha (mensal, adiantamento, 13º)' },
+      { ok: true, texto: 'Comparativo com o mês anterior (variação por setor)' },
+      { ok: true, texto: 'Férias e 13º realizado no ano — por mês, verba e setor (dado real, sem provisão inventada)' },
+      { ok: true, texto: 'Custo total por setor com encargos (bruto + FGTS real + INSS patronal estimado)' },
     ],
     fontesDados: ['Globus FLP_FICHAEVENTOS', 'Globus FLP_EVENTOS', 'Globus VW_FUNCIONARIOS'],
   },
@@ -383,6 +422,41 @@ export const MODULOS: Record<string, ModuloInfo> = {
 
 export function statusModulo(href: string): ModuloInfo | undefined {
   return MODULOS[href];
+}
+
+export interface PerguntaRoadmap {
+  chave: string;
+  modulo: string;
+  moduloNome: string;
+  pergunta: string;
+}
+
+/** Hash estável (djb2) → base36, pra chave curta e determinística por texto. */
+function hashCurto(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = (((h << 5) + h) + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+
+/** Chave estável de uma pergunta (módulo + texto) — usada pra amarrar a resposta. */
+export function chavePergunta(href: string, texto: string): string {
+  return `${href}#${hashCurto(texto)}`.slice(0, 80);
+}
+
+/**
+ * Todas as `perguntasFinanceiro` do roadmap, achatadas, com chave estável.
+ * Fonte ÚNICA das perguntas — a tela /perguntas lê daqui e sobrepõe as respostas
+ * do banco. Adicionar uma pergunta em qualquer módulo a faz aparecer sozinha lá.
+ */
+export function todasPerguntasFinanceiro(): PerguntaRoadmap[] {
+  const out: PerguntaRoadmap[] = [];
+  for (const m of Object.values(MODULOS)) {
+    if (!m.perguntasFinanceiro) continue;
+    for (const p of m.perguntasFinanceiro) {
+      out.push({ chave: chavePergunta(m.href, p), modulo: m.href, moduloNome: m.nome, pergunta: p });
+    }
+  }
+  return out;
 }
 
 /** Cores Tailwind por status. */

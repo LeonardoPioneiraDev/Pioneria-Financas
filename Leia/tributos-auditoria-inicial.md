@@ -308,3 +308,42 @@ INSS / ISS: aplicavel = false (não calcula esperado, só mostra retido + observ
         ▼
 ConferenciaRetencao { retencoes[], divergenciaTotalCents, temDivergencia, alertas[] }
 ```
+
+---
+
+## 11. Fechamento do módulo (14/07/2026) — "todas as respostas = não"
+
+As perguntas ao financeiro/contabilidade (SFN-45: quem apura PIS/COFINS, uso de
+sistema externo, prioridade de tributos) **não foram respondidas**. Orientação do
+user: **considerar todas as respostas como "não"** e finalizar o módulo.
+
+**Efeito no escopo** — as 5 features que estavam ⏳ *aguardando* passam a **fora de
+escopo (feito fora do sistema)**, não pendência de desenvolvimento:
+
+| Feature | Decisão | Por quê |
+|---|---|---|
+| #1 Apuração própria PIS/COFINS | Fora de escopo | Feita pelo contador; ECF do Globus é anual/defasada (§10). |
+| #2 ISS por município | Fora de escopo | Municipal, sem política de retenção definida; ISS retido = 0 real (§9-D). |
+| #4 Geração de DARF/GPS | Fora de escopo | Recolhimento feito fora; campos de código de receita ~vazios (§10). |
+| #6 Cruzamento SPED | Fora de escopo | Sem fonte externa a integrar. |
+| INSS/ISS calculados sobre NF | Fora de escopo | Globus registra zero de verdade — calcular geraria falso divergente (§9-D). |
+
+Decisão **reversível**: se a política mudar, o item correspondente é reaberto. O que
+depende do Globus continua refletindo o Globus automaticamente.
+
+**O que entregou o fechamento** (correções internas, sem depender do financeiro):
+
+- **Tributos da folha por tipo de folha** — seletor de `TIPOFOLHA` (Mensal, 13º,
+  Rescisão etc.). Antes o painel só somava a Mensal e **subestimava a carga em
+  nov/dez** (o 13º sai em folha à parte; tipos 5 e 35 são o mesmo 13º — não somar).
+  O painel mostra **uma folha por vez**, explícito, sem soma silenciosa.
+- **Semântica do total** — separado **custo do empregador** (FGTS + INSS patronal)
+  de **retido e repassado** (INSS + IRRF do funcionário).
+- **Base da conferência** — texto corrigido para **"valor bruto da NF"** (o código já
+  usava bruto puro pós-migration 32000; a cópia ainda dizia "líquido + retenções").
+- **Reconciliação folha↔guias** — nota explicando por que a "carga da folha" (~R$ 6 mi)
+  não bate com as guias do calendário (a folha recolhe por GPS/FGTS Digital/DARF fora
+  do borderô, não entra como `origem='guia'` no CP).
+- **Timezone** — `calendario()` deixou de usar `new Date()` cru (regra #2).
+
+Status do módulo: **`parcial` → `pronto` (Em produção)**.
