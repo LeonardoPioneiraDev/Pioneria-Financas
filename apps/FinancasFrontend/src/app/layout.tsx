@@ -3,8 +3,8 @@ import { Providers } from './providers';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Pioneira Financas',
-  description: 'Sistema financeiro da Viacao Pioneira',
+  title: 'Pioneira Finanças',
+  description: 'Sistema financeiro da Viação Pioneira',
   icons: { icon: '/favicon.ico' },
 };
 

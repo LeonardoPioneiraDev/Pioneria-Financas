@@ -17,6 +17,22 @@ interface SumarioCardsProps {
   onClickCard: (id: CardFiltroId) => void;
   /** Período base que está na barra de filtros (YYYY-MM-DD). */
   periodoBase: { dtIni: string; dtFim: string };
+  /** Sobrescreve o título do KPI principal (ex.: "Total pago no filtro" quando
+   *  há filtro por data de pagamento). Default: "Total no período". */
+  tituloTotalOverride?: string;
+  /** Sobrescreve o texto de período exibido no KPI e no card "Pago" (ex.: a
+   *  janela de pagamento). Default: período base (vencimento). */
+  periodoTextoOverride?: string;
+  /**
+   * Caixa que SAIU da conta no período (só no modo "filtrar por pagamento").
+   * Quando informado, mostra "Saiu da conta" + a diferença (aplicação/investimento +
+   * devolução) AO LADO do total pago, sem precisar abrir o detalhe. `null` = não exibe.
+   */
+  movimentoDiaCents?: number | null;
+  movimentoFinanceiroCents?: number;
+  movimentoDevolucaoCents?: number;
+  /** Abre o detalhe dos movimentos bancários (extrato do período). */
+  onVerMovimento?: () => void;
 }
 
 function moeda(cents: number): string {
@@ -33,12 +49,14 @@ function dataBr(iso: string): string {
   const d = new Date(`${iso}T00:00:00`);
   return Number.isNaN(d.getTime()) ? '—' : format(d, 'dd/MM/yyyy');
 }
+// `periodoBase.dtFim` já vem INCLUSIVO (a mesma data que o usuário escolheu em
+// "Vencimento até" — ver "Período selecionado" no header, que usa filtros.dtFim
+// direto, sem ajuste). NÃO subtrair um dia aqui: um filtro de 30/07 a 30/07
+// virava "30/07 a 29/07" na tela — data final ANTES da inicial. Bug real
+// reportado pelo financeiro em 30/07/2026.
 function periodoTexto(dtIni: string, dtFim: string): string {
   if (!dtFim) return dataBr(dtIni);
-  const fimDt = new Date(`${dtFim}T00:00:00`);
-  if (Number.isNaN(fimDt.getTime())) return dataBr(dtIni);
-  fimDt.setDate(fimDt.getDate() - 1);
-  return `${dataBr(dtIni)} a ${format(fimDt, 'dd/MM/yyyy')}`;
+  return `${dataBr(dtIni)} a ${dataBr(dtFim)}`;
 }
 function hoje(): Date { return new Date(); }
 function emNDias(n: number): Date {
@@ -59,7 +77,7 @@ interface CardData {
   pctTotal?: number;
 }
 
-export function SumarioCards({ sumario, carregando, filtroAtivo, onClickCard, periodoBase }: SumarioCardsProps) {
+export function SumarioCards({ sumario, carregando, filtroAtivo, onClickCard, periodoBase, tituloTotalOverride, periodoTextoOverride, movimentoDiaCents, movimentoFinanceiroCents, movimentoDevolucaoCents, onVerMovimento }: SumarioCardsProps) {
   if (carregando) {
     return (
       <div className="space-y-3">
@@ -74,6 +92,9 @@ export function SumarioCards({ sumario, carregando, filtroAtivo, onClickCard, pe
   }
 
   const periodoBaseTexto = periodoTexto(periodoBase.dtIni, periodoBase.dtFim);
+  // Texto de período exibido no KPI principal e no card "Pago": usa o override
+  // (ex.: janela de pagamento) quando informado; senão, o período base.
+  const periodoHeaderTexto = periodoTextoOverride ?? periodoBaseTexto;
   const periodo7dTexto = `Vence entre ${format(hoje(), 'dd/MM')} e ${format(emNDias(7), 'dd/MM')}`;
   const periodoVencidosTexto = `Vencimento antes de ${format(hoje(), 'dd/MM/yyyy')}`;
   const periodoMaisDe7Texto = `Vence após ${format(emNDias(7), 'dd/MM/yyyy')}`;
@@ -120,7 +141,7 @@ export function SumarioCards({ sumario, carregando, filtroAtivo, onClickCard, pe
       quantidade: sumario.pago.quantidade,
       valor: sumario.pago.valorAPagarCents,
       cor: 'from-emerald-400 to-emerald-300 dark:from-emerald-500 dark:to-emerald-600',
-      periodo: periodoBaseTexto,
+      periodo: periodoHeaderTexto,
       pctTotal: pct(sumario.pago.quantidade),
     },
     {
@@ -142,22 +163,59 @@ export function SumarioCards({ sumario, carregando, filtroAtivo, onClickCard, pe
     <div className="space-y-3">
       {/* Header KPI — Total no período (não clicável) */}
       <Card className="p-4 sm:p-5 bg-gradient-to-r from-pioneira-50/60 to-pioneira-100/30 dark:from-yellow-950/30 dark:to-yellow-900/10 border-pioneira-300 dark:border-yellow-800">
-        <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="flex items-start justify-between gap-x-8 gap-y-3 flex-wrap">
           <div className="min-w-0">
             <p className="text-xs uppercase tracking-wider text-pioneira-700 dark:text-yellow-400 font-bold">
-              Total no período
+              {tituloTotalOverride ?? 'Total no período'}
             </p>
             <p className="text-2xl sm:text-3xl font-bold mt-1 text-pioneira-900 dark:text-yellow-200">
               {moeda(sumario.total.valorAPagarCents)}
             </p>
             <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
-              <strong>{total.toLocaleString('pt-BR')}</strong> títulos · {periodoBaseTexto}
+              <strong>{total.toLocaleString('pt-BR')}</strong> títulos · {periodoHeaderTexto}
             </p>
           </div>
-          <div className="shrink-0 h-12 w-12 rounded-xl bg-gradient-to-br from-pioneira-400 to-pioneira-300 dark:from-yellow-500 dark:to-amber-600 flex items-center justify-center shadow-md">
-            <FileText className="h-6 w-6 text-white" />
-          </div>
+
+          {/* Saiu da conta (modo pagamento) — ao lado do total pago, conforme pedido. */}
+          {movimentoDiaCents != null ? (
+            <button
+              type="button"
+              onClick={onVerMovimento}
+              className="text-left rounded-md -m-1 p-1 cursor-pointer hover:bg-sky-50/60 dark:hover:bg-sky-950/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 transition-colors"
+              title="Ver todos os lançamentos que saíram da conta no período"
+            >
+              <p className="text-xs uppercase tracking-wider text-sky-700 dark:text-sky-400 font-bold">Saiu da conta</p>
+              <p className="text-2xl sm:text-3xl font-bold mt-1 text-sky-700 dark:text-sky-300">
+                {moeda(movimentoDiaCents)}
+              </p>
+              <p className="text-[11px] font-medium text-sky-600 dark:text-sky-400 mt-0.5">ver detalhes →</p>
+            </button>
+          ) : (
+            <div className="shrink-0 h-12 w-12 rounded-xl bg-gradient-to-br from-pioneira-400 to-pioneira-300 dark:from-yellow-500 dark:to-amber-600 flex items-center justify-center shadow-md">
+              <FileText className="h-6 w-6 text-white" />
+            </div>
+          )}
         </div>
+
+        {/* Diferença entre "saiu da conta" e "total pago" = dinheiro que não é pagamento. */}
+        {movimentoDiaCents != null &&
+          ((movimentoFinanceiroCents ?? 0) > 0 || (movimentoDevolucaoCents ?? 0) !== 0) && (
+            <p className="text-[11px] text-gray-600 dark:text-gray-300 mt-2 leading-snug">
+              Diferença = dinheiro que <strong>não é pagamento de conta</strong>:
+              {(movimentoFinanceiroCents ?? 0) > 0 && (
+                <span className="text-amber-600 dark:text-amber-400">
+                  {' '}+{moeda(movimentoFinanceiroCents!)} aplicação/investimento (dinheiro movido pra render)
+                </span>
+              )}
+              {(movimentoDevolucaoCents ?? 0) !== 0 && (
+                <span className="text-sky-600 dark:text-sky-400">
+                  {(movimentoFinanceiroCents ?? 0) > 0 ? ' · ' : ' '}
+                  {moeda(movimentoDevolucaoCents!)} devolvido pelo banco (saiu e voltou)
+                </span>
+              )}
+              .
+            </p>
+          )}
         {/* Barra de composição empilhada */}
         {total > 0 && (
           <div className="mt-3">

@@ -11,7 +11,7 @@ import { api, extrairMensagemErro } from '@/lib/api';
 interface WorkflowActionsProps {
   documentoTipo: string;
   documentoId: string;
-  /** Se o documento ainda nao tem workflow, passa o templateId padrao pra iniciar. */
+  /** Se o documento ainda não tem workflow, passa o templateId padrão pra iniciar. */
   templatePadraoId?: string;
 }
 
@@ -37,7 +37,7 @@ export function WorkflowActions({ documentoTipo, documentoId, templatePadraoId }
 
   const iniciar = useMutation({
     mutationFn: async () => {
-      if (!templatePadraoId) throw new Error('Sem template padrao definido para este tipo');
+      if (!templatePadraoId) throw new Error('Sem template padrão definido para este tipo');
       await api.post('/api/workflow/instances', {
         templateId: templatePadraoId,
         documentoTipo,
@@ -58,7 +58,7 @@ export function WorkflowActions({ documentoTipo, documentoId, templatePadraoId }
       });
     },
     onSuccess: () => {
-      toast.success('Etapa avancada');
+      toast.success('Etapa avançada');
       setComentario('');
       setAcaoAberta(null);
       invalidar();
@@ -88,7 +88,7 @@ export function WorkflowActions({ documentoTipo, documentoId, templatePadraoId }
       });
     },
     onSuccess: () => {
-      toast.success('Comentario adicionado');
+      toast.success('Comentário adicionado');
       setComentario('');
       setAcaoAberta(null);
       invalidar();
@@ -114,7 +114,7 @@ export function WorkflowActions({ documentoTipo, documentoId, templatePadraoId }
     return (
       <div className="flex flex-wrap gap-2">
         <Button size="sm" onClick={() => setAcaoAberta('avancar')}>
-          <ArrowRight className="h-4 w-4" /> Avancar etapa
+          <ArrowRight className="h-4 w-4" /> Avançar etapa
         </Button>
         {data.instance.etapaAtualIdx > 0 && (
           <Button size="sm" variant="outline" onClick={() => setAcaoAberta('voltar')}>
@@ -130,13 +130,13 @@ export function WorkflowActions({ documentoTipo, documentoId, templatePadraoId }
 
   const pending = avancar.isPending || voltar.isPending || comentar.isPending;
   const labelBotao =
-    acaoAberta === 'avancar' ? 'Confirmar avanco' : acaoAberta === 'voltar' ? 'Confirmar volta' : 'Adicionar comentario';
+    acaoAberta === 'avancar' ? 'Confirmar avanço' : acaoAberta === 'voltar' ? 'Confirmar volta' : 'Adicionar comentário';
 
   return (
     <div className="space-y-2 rounded-md border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-800/50">
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
-          {acaoAberta === 'avancar' ? 'Avancar etapa' : acaoAberta === 'voltar' ? 'Voltar etapa' : 'Novo comentario'}
+          {acaoAberta === 'avancar' ? 'Avançar etapa' : acaoAberta === 'voltar' ? 'Voltar etapa' : 'Novo comentário'}
         </span>
         <button
           type="button"
@@ -153,7 +153,7 @@ export function WorkflowActions({ documentoTipo, documentoId, templatePadraoId }
       <textarea
         value={comentario}
         onChange={(e) => setComentario(e.target.value)}
-        placeholder={acaoAberta === 'voltar' || acaoAberta === 'comentar' ? 'Justifique...' : 'Comentario (opcional)'}
+        placeholder={acaoAberta === 'voltar' || acaoAberta === 'comentar' ? 'Justifique...' : 'Comentário (opcional)'}
         rows={3}
         className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:border-pioneira-400 focus:outline-none focus:ring-2 focus:ring-pioneira-400/30 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
       />

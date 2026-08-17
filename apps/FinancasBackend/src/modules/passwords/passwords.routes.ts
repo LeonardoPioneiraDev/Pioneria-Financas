@@ -18,7 +18,7 @@ export const passwordsModule: FastifyPluginAsyncTypebox = async (fastify) => {
     {
       schema: {
         tags: ['passwords'],
-        summary: 'Solicita email de recuperacao de senha',
+        summary: 'Solicita email de recuperação de senha',
         body: ForgotPasswordPayloadSchema,
         response: { 202: Type.Object({ message: Type.String() }) },
       },
@@ -26,7 +26,7 @@ export const passwordsModule: FastifyPluginAsyncTypebox = async (fastify) => {
     },
     async (req, reply) => {
       await service.solicitarRecuperacao(req.body.email, obterIpDoCliente(req), req.headers['user-agent'] ?? null);
-      return reply.code(202).send({ message: 'Se o email existir, voce recebera um link de recuperacao' });
+      return reply.code(202).send({ message: 'Se o email existir, você receberá um link de recuperação' });
     },
   );
 
@@ -48,7 +48,7 @@ export const passwordsModule: FastifyPluginAsyncTypebox = async (fastify) => {
     {
       schema: {
         tags: ['passwords'],
-        summary: 'Redefine senha usando token de recuperacao',
+        summary: 'Redefine senha usando token de recuperação',
         body: ResetPasswordPayloadSchema,
         response: { 204: Type.Null() },
       },

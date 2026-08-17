@@ -76,7 +76,7 @@ export function buildReguaCobrancaService(fastify: FastifyInstance) {
 
     async atualizarTemplate(id: string, body: ReguaTemplateUpdate): Promise<ReguaTemplate> {
       const t = await templateRepo.findOne({ where: { id } });
-      if (!t) throw fastify.httpErrors.notFound('Template nao encontrado');
+      if (!t) throw fastify.httpErrors.notFound('Template não encontrado');
       if (body.nome !== undefined) t.nome = body.nome;
       if (body.canal !== undefined) t.canal = body.canal;
       if (body.gatilhoDiasVencimento !== undefined) t.gatilhoDiasVencimento = body.gatilhoDiasVencimento;
@@ -94,7 +94,7 @@ export function buildReguaCobrancaService(fastify: FastifyInstance) {
         .leftJoinAndSelect('e.contaReceber', 'cr')
         .leftJoinAndSelect('cr.cliente', 'cli')
         .leftJoinAndSelect('e.template', 't')
-        // PROPERTY name no orderBy (nao coluna do banco): leftJoinAndSelect + limit
+        // PROPERTY name no orderBy (não coluna do banco): leftJoinAndSelect + limit
         // cai no caminho combined-select do TypeORM, que resolve por property.
         .orderBy('e.enviadoEm', 'DESC')
         .limit(200)
@@ -122,9 +122,9 @@ export function buildReguaCobrancaService(fastify: FastifyInstance) {
     },
 
     /**
-     * Simula execucao da regua HOJE — pra cada CR aberto, dispara templates
-     * cujo gatilho bate com dias_vencidos. Idempotente: pula se ja foi enviado
-     * mesma combinacao (cr, template, dia).
+     * Simula execução da régua HOJE — pra cada CR aberto, dispara templates
+     * cujo gatilho bate com dias_vencidos. Idempotente: pula se já foi enviado
+     * mesma combinação (cr, template, dia).
      *
      * MVP: modo='simulado'. Envio real (email/whatsapp) virá quando confirmarmos
      * provedor com o financeiro.
@@ -152,8 +152,8 @@ export function buildReguaCobrancaService(fastify: FastifyInstance) {
         for (const t of templates) {
           if (t.gatilhoDiasVencimento !== dias) continue;
 
-          // Verifica idempotencia: ja enviou esse template pra esse CR hoje?
-          // Usa range de timestamp (em vez de DATE_TRUNC) pra aproveitar indice.
+          // Verifica idempotência: já enviou esse template pra esse CR hoje?
+          // Usa range de timestamp (em vez de DATE_TRUNC) pra aproveitar índice.
           const ja = await envioRepo
             .createQueryBuilder('e')
             .where('e.conta_receber_id = :crId', { crId: cr.id })
@@ -213,4 +213,4 @@ export function buildReguaCobrancaService(fastify: FastifyInstance) {
 
 export type ReguaCobrancaService = ReturnType<typeof buildReguaCobrancaService>;
 
-void IsNull; // disponivel pra usos futuros
+void IsNull; // disponível pra usos futuros

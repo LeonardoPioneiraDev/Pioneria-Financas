@@ -21,6 +21,7 @@ import { TermoTecnico } from '@/components/shared/TermoTecnico';
 import { api, extrairMensagemErro } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { ModuleStatusBanner } from '@/components/layout/ModuleStatusBanner';
+import { usePodeSincronizar } from '@/hooks/usePodeSincronizar';
 import { ComposicaoFamiliaDialog } from './_components/ComposicaoFamiliaDialog';
 
 function moeda(cents: number): string {
@@ -66,6 +67,8 @@ type Metrica = 'valor' | 'creditos';
 type Aba = 'resumo' | 'velocidade' | 'mapa';
 
 export default function RecebiveisGdfPage() {
+  // Sincronizar com o Globus é ação de administrador.
+  const podeSincronizar = usePodeSincronizar();
   const qc = useQueryClient();
   const [dtIni, setDtIni] = useState(inicioDoMes());
   const [dtFim, setDtFim] = useState(hojeIso());
@@ -136,10 +139,12 @@ export default function RecebiveisGdfPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button onClick={() => sync.mutate()} disabled={sync.isPending} variant="outline" size="sm">
-            {sync.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Sincronizar BRB
-          </Button>
+          {podeSincronizar && (
+            <Button onClick={() => sync.mutate()} disabled={sync.isPending} variant="outline" size="sm">
+              {sync.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Sincronizar BRB
+            </Button>
+          )}
         </div>
       </div>
 

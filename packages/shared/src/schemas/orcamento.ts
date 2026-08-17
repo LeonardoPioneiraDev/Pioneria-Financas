@@ -86,6 +86,14 @@ export const OrcamentoDerivadoSetorSchema = Type.Object({
   mesesComGasto: Type.Integer(),
   /** Orcado mensal sugerido = realizado / baseMeses. Estado: projetado. */
   mensalSugeridoCents: Type.Integer(),
+  /** Realizado do ULTIMO mes completo (o mes comparado). 0 se sem dado. */
+  realizadoMesCents: Type.Integer(),
+  /** Orcado de referencia usado na comparacao = meta adotada, se houver; senao a media. */
+  variacaoPerc: Type.Number(),
+  /** true quando o realizado do mes passou de 110% do orcado de referencia. */
+  estourou: Type.Boolean(),
+  /** Meta adotada pelo financeiro pra este setor (centavos). Null = usa a media sugerida. */
+  metaMensalCents: Type.Union([Type.Integer(), Type.Null()]),
 });
 export type OrcamentoDerivadoSetor = Static<typeof OrcamentoDerivadoSetorSchema>;
 
@@ -99,10 +107,57 @@ export const OrcamentoDerivadoResponseSchema = Type.Object({
   totalRealizadoCents: Type.Integer(),
   orcadoMensalSugeridoCents: Type.Integer(),
   orcadoAnualSugeridoCents: Type.Integer(),
+  /** COMPARATIVO — realizado do ultimo mes completo x orcado sugerido. */
+  mesComparado: Type.Union([Type.String({ format: 'date' }), Type.Null()]),
+  mesComparadoLabel: Type.Union([Type.String(), Type.Null()]),
+  /** Soma do realizado dos setores no mes comparado. */
+  realizadoMesTotalCents: Type.Integer(),
+  /** Quantos setores estouraram (>110% do orcado de referencia) no mes. */
+  qtdEstouros: Type.Integer(),
+  /** true quando o financeiro ja adotou um orcado de referencia (meta). */
+  metaAdotada: Type.Boolean(),
+  metaAdotadaEm: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
   porSetor: Type.Array(OrcamentoDerivadoSetorSchema),
   observacoes: Type.Array(Type.String()),
 });
 export type OrcamentoDerivadoResponse = Static<typeof OrcamentoDerivadoResponseSchema>;
+
+// ----------------------------------------------------------------------------
+// ORCADO DE REFERENCIA (meta adotada pelo financeiro)
+// ----------------------------------------------------------------------------
+
+export const OrcamentoMetaItemSchema = Type.Object({
+  codCustoFin: Type.Integer(),
+  nome: Type.Union([Type.String(), Type.Null()]),
+  categoria: Type.String(),
+  orcadoMensalCents: Type.Integer(),
+  baseSugeridoCents: Type.Integer(),
+  observacao: Type.Union([Type.String(), Type.Null()]),
+});
+export type OrcamentoMetaItem = Static<typeof OrcamentoMetaItemSchema>;
+
+export const OrcamentoMetaResponseSchema = Type.Object({
+  adotado: Type.Boolean(),
+  adotadoEm: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
+  totalMensalCents: Type.Integer(),
+  itens: Type.Array(OrcamentoMetaItemSchema),
+});
+export type OrcamentoMetaResponse = Static<typeof OrcamentoMetaResponseSchema>;
+
+export const OrcamentoAdotarItemSchema = Type.Object({
+  codCustoFin: Type.Integer(),
+  nome: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  categoria: Type.Optional(Type.String()),
+  orcadoMensalCents: Type.Integer({ minimum: 0 }),
+  baseSugeridoCents: Type.Optional(Type.Integer({ minimum: 0 })),
+  observacao: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+});
+export type OrcamentoAdotarItem = Static<typeof OrcamentoAdotarItemSchema>;
+
+export const OrcamentoAdotarBodySchema = Type.Object({
+  itens: Type.Array(OrcamentoAdotarItemSchema, { minItems: 1, maxItems: 200 }),
+});
+export type OrcamentoAdotarBody = Static<typeof OrcamentoAdotarBodySchema>;
 
 export const OrcamentoSyncResponseSchema = Type.Object({
   jobId: Type.String(),

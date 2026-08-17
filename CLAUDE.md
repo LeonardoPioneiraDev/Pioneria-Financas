@@ -56,7 +56,7 @@ URLs locais: backend `http://localhost:3333` · Swagger `/docs` · frontend `htt
 8. Dependências via decorators do Fastify (`fastify.db`, `fastify.log`), nunca imports diretos.
 9. Plugins de infra (`src/plugins/`) usam `fastify-plugin`; módulos de feature (`src/modules/`) **não usam** `fp()`.
 10. Migrations via TypeORM. `synchronize: true` proibido em prod. Colunas de data: `timestamptz`. Tabelas/colunas: `snake_case`.
-11. UI, variáveis de domínio e commits em **português brasileiro**.
+11. UI, variáveis de domínio e commits em **português brasileiro**, **sempre com acentuação correta** (é, ã, ç, õ, ê, í, ó, ú, à...). Nunca escrever texto visível ao usuário (labels, placeholders, mensagens de erro/toast, tooltips, textos de ajuda) sem acento — "período" não "periodo", "até" não "ate", "não" não "nao", "está"/"estão" não "esta"/"estao", "você" não "voce", "código" não "codigo". Revisar o texto escrito antes de finalizar a resposta quando a tarefa envolver criar ou editar texto em português.
 
 ## Princípios herdados do v1 (ver `Leia/01_VISAO.md`)
 

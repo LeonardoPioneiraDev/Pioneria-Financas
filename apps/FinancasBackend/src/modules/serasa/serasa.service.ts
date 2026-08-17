@@ -86,7 +86,7 @@ export function buildSerasaService(fastify: FastifyInstance) {
   return {
     async consultar(args: { body: ConsultarSerasaBody; usuarioId: string }): Promise<SerasaConsultaResponse> {
       const cliente = await clienteRepo.findOne({ where: { id: args.body.clienteId } });
-      if (!cliente) throw fastify.httpErrors.notFound('Cliente nao encontrado');
+      if (!cliente) throw fastify.httpErrors.notFound('Cliente não encontrado');
 
       const score = scoreMock(cliente.numeroInscricao);
       const r = restricaoMock(cliente.numeroInscricao);
@@ -99,8 +99,8 @@ export function buildSerasaService(fastify: FastifyInstance) {
         qtdRestricoes: r.qtd,
         valorRestricoesCents: String(r.valorCents),
         observacao: r.tem
-          ? `Cliente com ${r.qtd} restricao(oes) totalizando R$ ${(r.valorCents / 100).toFixed(2)}`
-          : 'Cliente sem restricoes',
+          ? `Cliente com ${r.qtd} restrição(ões) totalizando R$ ${(r.valorCents / 100).toFixed(2)}`
+          : 'Cliente sem restrições',
         modo: 'mock',
         consultadoPorId: args.usuarioId,
       });
@@ -123,17 +123,17 @@ export function buildSerasaService(fastify: FastifyInstance) {
         where: { id: args.body.contaReceberId },
         relations: ['cliente'],
       });
-      if (!cr) throw fastify.httpErrors.notFound('CR nao encontrado');
+      if (!cr) throw fastify.httpErrors.notFound('CR não encontrado');
       if (cr.excluidoEm || cr.status === 'cancelado' || cr.status === 'pago') {
-        throw fastify.httpErrors.conflict('CR cancelado/pago/excluido nao pode ser negativado');
+        throw fastify.httpErrors.conflict('CR cancelado/pago/excluído não pode ser negativado');
       }
 
-      // Verifica idempotencia: ja foi negativado?
+      // Verifica idempotência: já foi negativado?
       const ja = await negativacaoRepo.findOne({
         where: { contaReceberId: cr.id, status: 'enviado' },
       });
       if (ja) {
-        throw fastify.httpErrors.conflict('CR ja tem negativacao ativa');
+        throw fastify.httpErrors.conflict('CR já tem negativação ativa');
       }
 
       const protocolo = `SERASA-MOCK-${Date.now()}`;
@@ -147,12 +147,12 @@ export function buildSerasaService(fastify: FastifyInstance) {
         status: 'enviado',
         modo: 'mock',
         enviadoPorId: args.usuarioId,
-        observacao: 'Negativacao em modo MOCK — nenhuma chamada feita a SERASA real.',
+        observacao: 'Negativação em modo MOCK — nenhuma chamada feita a SERASA real.',
       });
       await negativacaoRepo.save(nova);
       nova.contaReceber = cr;
       if (cr.cliente) nova.cliente = cr.cliente;
-      fastify.log.info({ negId: nova.id, crId: cr.id, protocolo }, '[serasa] negativacao MOCK criada');
+      fastify.log.info({ negId: nova.id, crId: cr.id, protocolo }, '[serasa] negativação MOCK criada');
       return toNegativacao(nova);
     },
 
@@ -161,9 +161,9 @@ export function buildSerasaService(fastify: FastifyInstance) {
         where: { id: negativacaoId },
         relations: ['contaReceber', 'cliente'],
       });
-      if (!n) throw fastify.httpErrors.notFound('Negativacao nao encontrada');
+      if (!n) throw fastify.httpErrors.notFound('Negativação não encontrada');
       if (n.status === 'baixado') {
-        throw fastify.httpErrors.conflict('Negativacao ja foi baixada');
+        throw fastify.httpErrors.conflict('Negativação já foi baixada');
       }
       n.status = 'baixado';
       n.baixadoEm = new Date();
@@ -186,14 +186,14 @@ export function buildSerasaService(fastify: FastifyInstance) {
       dataLimite.setDate(dataLimite.getDate() - DIAS_CANDIDATO_MIN);
       const dataLimiteIso = dataLimite.toISOString().slice(0, 10);
 
-      // CRs vencidos ha pelo menos 30 dias, status aberto/renegociado, sem negativacao ativa
+      // CRs vencidos há pelo menos 30 dias, status aberto/renegociado, sem negativação ativa
       const crs = await crRepo
         .createQueryBuilder('cr')
         .leftJoinAndSelect('cr.cliente', 'cli')
         .where("cr.status IN ('aberto','renegociado')")
         .andWhere('cr.excluido_em IS NULL')
         .andWhere('cr.data_vencimento <= :limite', { limite: dataLimiteIso })
-        // PROPERTY name no orderBy (nao coluna do banco): leftJoinAndSelect + limit
+        // PROPERTY name no orderBy (não coluna do banco): leftJoinAndSelect + limit
         // cai no caminho combined-select do TypeORM, que resolve por property.
         .orderBy('cr.dataVencimento', 'ASC')
         .limit(200)

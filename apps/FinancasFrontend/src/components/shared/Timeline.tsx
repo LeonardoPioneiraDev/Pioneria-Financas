@@ -14,7 +14,7 @@ interface TimelineProps {
   documentoTipo: string;
   /** ID do documento (UUID ou string). */
   documentoId: string;
-  /** Renderiza versao compacta (sem comentarios). */
+  /** Renderiza versão compacta (sem comentários). */
   compacto?: boolean;
 }
 
@@ -80,7 +80,7 @@ export function Timeline({ documentoTipo, documentoId, compacto = false }: Timel
 
   return (
     <div className="space-y-4">
-      {/* Cabecalho: status do workflow */}
+      {/* Cabeçalho: status do workflow */}
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="text-gray-500 dark:text-gray-400">Workflow:</span>
         <span className="font-medium text-gray-900 dark:text-gray-100">{template.nome}</span>
@@ -105,7 +105,7 @@ export function Timeline({ documentoTipo, documentoId, compacto = false }: Timel
 
           return (
             <li key={etapa.chave} className="relative flex gap-3 pb-5 last:pb-0">
-              {/* Linha vertical (so se nao for o ultimo item) */}
+              {/* Linha vertical (só se não for o último item) */}
               {!ehUltima && (
                 <span
                   className={cn(
@@ -116,7 +116,7 @@ export function Timeline({ documentoTipo, documentoId, compacto = false }: Timel
                 />
               )}
 
-              {/* Bullet com icone */}
+              {/* Bullet com ícone */}
               <div
                 className={cn(
                   'relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2',
@@ -128,7 +128,7 @@ export function Timeline({ documentoTipo, documentoId, compacto = false }: Timel
                 <Icone className={cn('h-4 w-4', cor.text)} />
               </div>
 
-              {/* Conteudo */}
+              {/* Conteúdo */}
               <div className="min-w-0 flex-1 pt-1">
                 <div className="flex flex-wrap items-baseline gap-x-2">
                   <span className={cn('text-sm font-medium', cor.text)}>{etapa.nome}</span>
@@ -139,7 +139,7 @@ export function Timeline({ documentoTipo, documentoId, compacto = false }: Timel
                   )}
                   {passada && (
                     <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
-                      concluida
+                      concluída
                     </span>
                   )}
                 </div>
@@ -155,7 +155,7 @@ export function Timeline({ documentoTipo, documentoId, compacto = false }: Timel
                 )}
                 {futura && !compacto && etapa.papelResponsavel && (
                   <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
-                    Responsavel: <span className="font-medium">{etapa.papelResponsavel}</span>
+                    Responsável: <span className="font-medium">{etapa.papelResponsavel}</span>
                   </p>
                 )}
               </div>
@@ -164,7 +164,7 @@ export function Timeline({ documentoTipo, documentoId, compacto = false }: Timel
         })}
       </ol>
 
-      {/* Comentarios / anexos / outras acoes (fora da timeline principal) */}
+      {/* Comentários / anexos / outras ações (fora da timeline principal) */}
       {!compacto && eventosForaDeEtapa.length > 0 && (
         <div className="space-y-2 rounded-lg border border-gray-200 bg-gray-50/50 p-3 dark:border-gray-700 dark:bg-gray-900/30">
           <h4 className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
@@ -220,7 +220,7 @@ function StatusBadge({ status }: { status: string }) {
       classes: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
     },
     concluido: {
-      label: 'Concluido',
+      label: 'Concluído',
       classes: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
     },
     cancelado: {

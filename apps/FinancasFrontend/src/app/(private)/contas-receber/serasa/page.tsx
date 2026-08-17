@@ -38,7 +38,7 @@ function dataHoraFmt(d: string): string {
 
 const CLASSIF_BADGE: Record<string, { label: string; variant: 'default' | 'success' | 'warning' | 'danger' | 'muted' }> = {
   baixo_risco: { label: 'Baixo risco', variant: 'success' },
-  medio_risco: { label: 'Medio risco', variant: 'warning' },
+  medio_risco: { label: 'Médio risco', variant: 'warning' },
   alto_risco: { label: 'Alto risco', variant: 'danger' },
   sem_dados: { label: 'Sem dados', variant: 'muted' },
 };
@@ -74,7 +74,7 @@ export default function SerasaPage() {
   const negativar = useMutation<SerasaNegativacaoResponse, unknown, NegativarBody>({
     mutationFn: async (body) => (await api.post<SerasaNegativacaoResponse>('/api/serasa/negativar', body)).data,
     onSuccess: () => {
-      toast.success('Negativacao registrada (MOCK)');
+      toast.success('Negativação registrada (MOCK)');
       qc.invalidateQueries({ queryKey: ['serasa'] });
       setNegativando(null);
       setMotivo('');
@@ -85,7 +85,7 @@ export default function SerasaPage() {
   const baixar = useMutation<SerasaNegativacaoResponse, unknown, string>({
     mutationFn: async (id) => (await api.post<SerasaNegativacaoResponse>(`/api/serasa/baixar/${id}`)).data,
     onSuccess: () => {
-      toast.success('Negativacao baixada');
+      toast.success('Negativação baixada');
       qc.invalidateQueries({ queryKey: ['serasa', 'negativacoes'] });
     },
     onError: (err) => toast.error(extrairMensagemErro(err)),
@@ -97,7 +97,7 @@ export default function SerasaPage() {
     onSuccess: (r) => {
       toast.success(
         `Score: ${r.score ?? '-'} (${CLASSIF_BADGE[r.classificacao]?.label ?? r.classificacao})`,
-        { description: r.temRestricao ? `${r.qtdRestricoes} restricao(oes) — ${moeda(r.valorRestricoesCents)}` : 'Sem restricoes' },
+        { description: r.temRestricao ? `${r.qtdRestricoes} restrição(ões) — ${moeda(r.valorRestricoesCents)}` : 'Sem restrições' },
       );
       qc.invalidateQueries({ queryKey: ['serasa', 'consultas'] });
     },
@@ -107,7 +107,7 @@ export default function SerasaPage() {
   function confirmarNegativar() {
     if (!negativando) return;
     if (motivo.trim().length < 5) {
-      toast.error('Justifique a negativacao (min 5 caracteres)');
+      toast.error('Justifique a negativação (min 5 caracteres)');
       return;
     }
     negativar.mutate({ contaReceberId: negativando.contaReceberId, motivo: motivo.trim() });
@@ -129,7 +129,7 @@ export default function SerasaPage() {
           SERASA
         </h1>
         <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">
-          Negativacao de inadimplentes + consulta de score.
+          Negativação de inadimplentes + consulta de score.
         </p>
       </div>
 
@@ -137,10 +137,10 @@ export default function SerasaPage() {
         <div className="flex items-start gap-3">
           <Info className="h-5 w-5 text-amber-700 dark:text-amber-300 shrink-0 mt-0.5" />
           <div className="text-sm text-gray-700 dark:text-gray-200">
-            <strong className="text-amber-800 dark:text-amber-200">Versao em validacao com financeiro:</strong>{' '}
-            modo MOCK — consultas geram score deterministico por CNPJ (mesmo CNPJ = mesma resposta sempre).
-            Negativacoes sao apenas registradas no banco; NENHUMA chamada feita ao SERASA real.
-            Quando contrato + credenciais forem confirmados, substituimos por adapter real.
+            <strong className="text-amber-800 dark:text-amber-200">Versão em validação com financeiro:</strong>{' '}
+            modo MOCK — consultas geram score determinístico por CNPJ (mesmo CNPJ = mesma resposta sempre).
+            Negativações são apenas registradas no banco; NENHUMA chamada feita ao SERASA real.
+            Quando contrato + credenciais forem confirmados, substituímos por adapter real.
           </div>
         </div>
       </Card>
@@ -149,7 +149,7 @@ export default function SerasaPage() {
         <Card className="p-4">
           <p className="text-xs uppercase tracking-wider text-gray-500 font-bold">Candidatos</p>
           <p className="text-3xl font-bold mt-1">{candList.length}</p>
-          <p className="text-[10px] text-gray-500 mt-1">vencidos &gt;30d sem negativacao</p>
+          <p className="text-[10px] text-gray-500 mt-1">vencidos &gt;30d sem negativação</p>
         </Card>
         <Card className="p-4">
           <p className="text-xs uppercase tracking-wider text-gray-500 font-bold">Ativas</p>
@@ -175,7 +175,7 @@ export default function SerasaPage() {
             Candidatos ({candList.length})
           </TabsTrigger>
           <TabsTrigger value="negativacoes" icon={<ShieldAlert className="h-3.5 w-3.5" />}>
-            Negativacoes ({negList.length})
+            Negativações ({negList.length})
           </TabsTrigger>
           <TabsTrigger value="consultas" icon={<Search className="h-3.5 w-3.5" />}>
             Consultas ({consList.length})
@@ -187,9 +187,9 @@ export default function SerasaPage() {
           {!candidatos.isLoading && candList.length === 0 && (
             <Card className="p-10 text-center space-y-3">
               <CheckCircle2 className="h-10 w-10 mx-auto text-emerald-600" />
-              <h3 className="text-lg font-semibold">Sem candidatos a negativacao</h3>
+              <h3 className="text-lg font-semibold">Sem candidatos a negativação</h3>
               <p className="text-sm text-gray-500 max-w-md mx-auto">
-                Nenhum CR aberto/renegociado venceu ha mais de 30 dias sem negativacao ativa.
+                Nenhum CR aberto/renegociado venceu há mais de 30 dias sem negativação ativa.
               </p>
             </Card>
           )}
@@ -242,7 +242,7 @@ export default function SerasaPage() {
 
         <TabsContent value="negativacoes" className="space-y-2">
           {negList.length === 0 && !negativacoes.isLoading && (
-            <Card className="p-10 text-center text-sm text-gray-500">Nenhuma negativacao registrada.</Card>
+            <Card className="p-10 text-center text-sm text-gray-500">Nenhuma negativação registrada.</Card>
           )}
           {negList.map((n: SerasaNegativacaoResponse) => (
             <Card key={n.id} className="p-3">
@@ -298,7 +298,7 @@ export default function SerasaPage() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <strong className="text-sm">{c.clienteRazaoSocial ?? '-'}</strong>
                       {classif && <Badge variant={classif.variant} className="text-[9px]">{classif.label}</Badge>}
-                      {c.temRestricao && <Badge variant="danger" className="text-[9px]">RESTRICAO</Badge>}
+                      {c.temRestricao && <Badge variant="danger" className="text-[9px]">RESTRIÇÃO</Badge>}
                     </div>
                     <div className="text-[11px] text-gray-500 font-mono">{c.cnpjCpf ?? '-'}</div>
                     <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">{c.observacao}</p>
@@ -337,12 +337,12 @@ export default function SerasaPage() {
             </DialogHeader>
             <div className="space-y-3 mt-2">
               <p className="text-sm text-gray-700 dark:text-gray-200">
-                Esta acao registrara a intencao de negativacao no SERASA. Em modo MOCK nenhuma chamada externa
-                eh feita — apenas log auditavel no banco.
+                Esta ação registrará a intenção de negativação no SERASA. Em modo MOCK nenhuma chamada externa
+                é feita — apenas log auditável no banco.
               </p>
               <div>
                 <label className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-1 block">
-                  Motivo (obrigatorio) <span className="text-red-600">*</span>
+                  Motivo (obrigatório) <span className="text-red-600">*</span>
                 </label>
                 <textarea
                   value={motivo}
@@ -350,7 +350,7 @@ export default function SerasaPage() {
                   rows={3}
                   maxLength={500}
                   className="w-full text-sm rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 p-2"
-                  placeholder="Ex: inadimplencia ha 45 dias, 3 cobrancas sem resposta, contato perdido..."
+                  placeholder="Ex: inadimplência há 45 dias, 3 cobranças sem resposta, contato perdido..."
                 />
               </div>
             </div>
@@ -365,7 +365,7 @@ export default function SerasaPage() {
                 className="bg-red-700 hover:bg-red-800 text-white"
               >
                 {negativar.isPending && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
-                Confirmar negativacao
+                Confirmar negativação
               </Button>
             </div>
           </DialogContent>

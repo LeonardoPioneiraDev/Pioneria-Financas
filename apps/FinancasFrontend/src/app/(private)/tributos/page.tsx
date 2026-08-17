@@ -13,12 +13,15 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
 import { statusModulo, STATUS_COR } from '@/lib/module-status';
+import { usePodeSincronizar } from '@/hooks/usePodeSincronizar';
 
 function moeda(cents: number): string {
   return (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
 export default function TributosPage() {
+  // Sincronizar com o Globus é ação de administrador.
+  const podeSincronizar = usePodeSincronizar();
   const info = statusModulo('/tributos');
 
   const div = useQuery<ConferenciaDivergenciasResponse>({
@@ -375,6 +378,8 @@ function TributosFolhaPanel({
   tipoFolha: number;
   setTipoFolha: (t: number) => void;
 }) {
+  // Sincronizar com o Globus é ação de administrador.
+  const podeSincronizar = usePodeSincronizar();
   const disponivel = !!data?.disponivel;
   const patronalReal = data?.patronalFonte === 'real';
   const patronalCents = patronalReal ? (data?.inssPatronalRealCents ?? 0) : (data?.inssPatronalEstimadoCents ?? 0);
@@ -403,15 +408,17 @@ function TributosFolhaPanel({
         <h2 className="text-lg font-bold">Tributos da folha</h2>
         <Badge variant="success" className="text-[10px]">dado real da folha</Badge>
         <div className="ml-auto flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => sync.mutate()}
-            disabled={sync.isPending}
-            title="Lê a GPS da folha (INSS patronal real com/sem desoneração) do Globus"
-            className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 dark:border-gray-700 px-2 h-8 text-xs font-semibold hover:bg-gray-50 dark:hover:bg-gray-900/40 transition-colors disabled:opacity-60"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${sync.isPending ? 'animate-spin' : ''}`} /> Sincronizar guia
-          </button>
+          {podeSincronizar && (
+            <button
+              type="button"
+              onClick={() => sync.mutate()}
+              disabled={sync.isPending}
+              title="Lê a GPS da folha (INSS patronal real com/sem desoneração) do Globus"
+              className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 dark:border-gray-700 px-2 h-8 text-xs font-semibold hover:bg-gray-50 dark:hover:bg-gray-900/40 transition-colors disabled:opacity-60"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${sync.isPending ? 'animate-spin' : ''}`} /> Sincronizar guia
+            </button>
+          )}
           <label htmlFor="tipo-folha" className="text-xs text-gray-500 dark:text-gray-400">Folha</label>
           <select
             id="tipo-folha"

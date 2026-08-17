@@ -1,6 +1,7 @@
 import bcrypt from 'bcrypt';
 import type { FastifyInstance } from 'fastify';
 import type { LoginPayload, AuthenticatedUser, LoginResponse, UserRole } from '@pioneira/shared';
+import { ORDEM_FUNCIONALIDADES, funcionalidadesLiberadas } from '@pioneira/shared';
 import { User } from '@/entities/user.entity.js';
 import { RefreshToken } from '@/entities/refresh-token.entity.js';
 import { UserActivityLog } from '@/entities/user-activity-log.entity.js';
@@ -30,12 +31,37 @@ export function buildAuthService(fastify: FastifyInstance) {
     });
   }
 
-  function toAuthenticatedUser(user: User): AuthenticatedUser {
+  /**
+   * O que a auditoria JÁ VALIDOU (união dos auditores em trilha). É o menu do
+   * CFO: ele avaliza o conferido, então tela ainda em análise não aparece para
+   * ele — só entra depois que algum auditor validar.
+   */
+  async function funcionalidadesValidadasAuditoria(): Promise<string[]> {
+    const auditores = await userRepo.find({
+      where: { liberacaoProgressiva: true, ativo: true },
+      select: { id: true, role: true, funcionalidadesValidadas: true },
+    });
+    const uniao = new Set<string>();
+    for (const a of auditores) {
+      if (a.role === 'admin') continue;
+      for (const chave of a.funcionalidadesValidadas ?? []) uniao.add(chave);
+    }
+    return ORDEM_FUNCIONALIDADES.filter((c) => uniao.has(c));
+  }
+
+  async function toAuthenticatedUser(user: User): Promise<AuthenticatedUser> {
     return {
       id: user.id,
       email: user.email,
       nomeCompleto: user.nomeCompleto,
       role: user.role as UserRole,
+      permissoes: user.permissoes ?? [],
+      liberacaoProgressiva: user.liberacaoProgressiva ?? false,
+      funcionalidadesAtribuidas: user.funcionalidadesAtribuidas ?? [],
+      funcionalidadesValidadas: user.funcionalidadesValidadas ?? [],
+      funcionalidadesLiberadas: funcionalidadesLiberadas(user.funcionalidadesAtribuidas ?? [], user.funcionalidadesValidadas ?? []),
+      funcionalidadesValidadasAuditoria: user.role === 'cfo' ? await funcionalidadesValidadasAuditoria() : null,
+      progressoFuncionalidades: user.progressoFuncionalidades ?? {},
       ativo: user.ativo,
       ultimoLoginEm: user.ultimoLoginEm ? user.ultimoLoginEm.toISOString() : null,
     };
@@ -72,17 +98,17 @@ export function buildAuthService(fastify: FastifyInstance) {
 
       if (!user || !user.senhaHash || !user.ativo) {
         await registrarAtividade(user?.id ?? null, 'login_falha', ip, userAgent, { motivo: !user ? 'nao_encontrado' : !user.ativo ? 'inativo' : 'sem_senha' });
-        throw fastify.httpErrors.unauthorized('E-mail ou senha invalidos');
+        throw fastify.httpErrors.unauthorized('E-mail ou senha inválidos');
       }
 
       const senhaOk = await bcrypt.compare(payload.password, user.senhaHash);
       if (!senhaOk) {
         await registrarAtividade(user.id, 'login_falha', ip, userAgent, { motivo: 'senha_invalida' });
-        throw fastify.httpErrors.unauthorized('E-mail ou senha invalidos');
+        throw fastify.httpErrors.unauthorized('E-mail ou senha inválidos');
       }
 
       if (user.mustChangePassword) {
-        throw fastify.httpErrors.forbidden('Voce precisa definir sua senha pelo link enviado por email antes de fazer login');
+        throw fastify.httpErrors.forbidden('Você precisa definir sua senha pelo link enviado por email antes de fazer login');
       }
 
       user.ultimoLoginEm = new Date();
@@ -102,7 +128,7 @@ export function buildAuthService(fastify: FastifyInstance) {
         accessToken,
         refreshToken,
         expiresIn: parseDuration(fastify.config.jwt.accessExpiresIn),
-        user: toAuthenticatedUser(user),
+        user: await toAuthenticatedUser(user),
       };
     },
 
@@ -111,12 +137,12 @@ export function buildAuthService(fastify: FastifyInstance) {
       const stored = await refreshRepo.findOne({ where: { tokenHash } });
 
       if (!stored || stored.revogadoEm || stored.expiraEm < new Date()) {
-        throw fastify.httpErrors.unauthorized('Refresh token invalido ou expirado');
+        throw fastify.httpErrors.unauthorized('Refresh token inválido ou expirado');
       }
 
       const user = await userRepo.findOne({ where: { id: stored.usuarioId } });
       if (!user || !user.ativo) {
-        throw fastify.httpErrors.unauthorized('Usuario inativo');
+        throw fastify.httpErrors.unauthorized('Usuário inativo');
       }
 
       stored.revogadoEm = new Date();
@@ -134,7 +160,7 @@ export function buildAuthService(fastify: FastifyInstance) {
         accessToken,
         refreshToken: novoRefresh,
         expiresIn: parseDuration(fastify.config.jwt.accessExpiresIn),
-        user: toAuthenticatedUser(user),
+        user: await toAuthenticatedUser(user),
       };
     },
 
@@ -150,7 +176,7 @@ export function buildAuthService(fastify: FastifyInstance) {
 
     async me(usuarioId: string): Promise<AuthenticatedUser> {
       const user = await userRepo.findOne({ where: { id: usuarioId } });
-      if (!user) throw fastify.httpErrors.notFound('Usuario nao encontrado');
+      if (!user) throw fastify.httpErrors.notFound('Usuário não encontrado');
       return toAuthenticatedUser(user);
     },
   };

@@ -106,8 +106,18 @@ export function buildContasReceberService(fastify: FastifyInstance) {
 
       const qb = crRepo.createQueryBuilder('cr');
 
-      if (query.dtIni) qb.andWhere('cr.data_vencimento >= :dtIni', { dtIni: query.dtIni });
-      if (query.dtFim) qb.andWhere('cr.data_vencimento <= :dtFim', { dtFim: query.dtFim });
+      // Filtro por DATA DE RECEBIMENTO (o que foi recebido no período) — espelho do
+      // filtro de pagamento do CP. Quando ativo, desabilita o filtro de vencimento
+      // pra trazer tudo que foi recebido no intervalo, independente de quando vencia.
+      // Títulos não recebidos têm data_recebimento nula e ficam de fora.
+      const filtraRecebimento = !!(query.dtRecIni || query.dtRecFim);
+      if (filtraRecebimento) {
+        if (query.dtRecIni) qb.andWhere('cr.data_recebimento >= :dtRecIni', { dtRecIni: query.dtRecIni });
+        if (query.dtRecFim) qb.andWhere('cr.data_recebimento <= :dtRecFim', { dtRecFim: query.dtRecFim });
+      } else {
+        if (query.dtIni) qb.andWhere('cr.data_vencimento >= :dtIni', { dtIni: query.dtIni });
+        if (query.dtFim) qb.andWhere('cr.data_vencimento <= :dtFim', { dtFim: query.dtFim });
+      }
       const statuses = statusValidos(query.status);
       if (statuses.length > 0) qb.andWhere('cr.status IN (:...statuses)', { statuses });
       if (query.clienteId) qb.andWhere('cr.cliente_id = :clienteId', { clienteId: query.clienteId });
@@ -322,21 +332,32 @@ export function buildContasReceberService(fastify: FastifyInstance) {
         usuarioId,
       });
 
-      if (sync.status !== 'erro') {
-        await etl.processar();
+      // Roda o ETL (stage -> finance) e usa o resultado REAL dele nos "*Gravados".
+      // Antes retornava o count do STAGE (sync.*Gravados): um erro de ETL (lote
+      // atômico que cai, ex.: cliente_id nulo) passava como SUCESSO ("18 títulos")
+      // com finance.contas_receber vazio -> tela zerada sem explicação.
+      const etlRes = sync.status !== 'erro' ? await etl.processar() : null;
+
+      let mensagem = sync.mensagem;
+      if (etlRes && (etlRes.titulosComErro > 0 || etlRes.clientesComErro > 0)) {
+        const partes: string[] = [];
+        if (etlRes.clientesComErro > 0) partes.push(`${etlRes.clientesComErro} cliente(s)`);
+        if (etlRes.titulosComErro > 0) partes.push(`${etlRes.titulosComErro} título(s)`);
+        mensagem = `Lidos do Globus, mas ${partes.join(' e ')} não gravaram no banco local` +
+          (etlRes.erroDetalhe ? `. Motivo: ${etlRes.erroDetalhe}` : ' (ver logs do ETL crc).');
       }
 
       return {
         jobId: sync.jobId,
         status: sync.status,
         clientesLidos: sync.clientesLidos,
-        clientesGravados: sync.clientesGravados,
+        clientesGravados: etlRes?.clientesProcessados ?? 0,
         titulosLidos: sync.titulosLidos,
-        titulosGravados: sync.titulosGravados,
+        titulosGravados: etlRes?.titulosProcessados ?? 0,
         itensLidos: sync.itensLidos,
-        itensGravados: sync.itensGravados,
+        itensGravados: etlRes?.itensProcessados ?? 0,
         duracaoMs: sync.duracaoMs,
-        mensagem: sync.mensagem,
+        mensagem,
       };
     },
   };

@@ -12,6 +12,15 @@ const FaixaUnion = Type.Union(FAIXAS_AGING.map((s) => Type.Literal(s)));
 export const ContaReceberListQuerySchema = Type.Object({
   dtIni: Type.Optional(Type.String({ format: 'date' })),
   dtFim: Type.Optional(Type.String({ format: 'date' })),
+  /**
+   * Filtro por DATA DE RECEBIMENTO (RECEBIMENTOCRC). Quando preenchido, traz o
+   * que foi RECEBIDO no periodo independente do vencimento (espelho do filtro de
+   * pagamento do Contas a Pagar). Titulos nao recebidos tem data_recebimento
+   * nula e ficam de fora. Intervalo inclusivo [dtRecIni, dtRecFim], como o de
+   * vencimento. Quando ativo, o filtro de vencimento (dtIni/dtFim) e ignorado.
+   */
+  dtRecIni: Type.Optional(Type.String({ format: 'date' })),
+  dtRecFim: Type.Optional(Type.String({ format: 'date' })),
   status: Type.Optional(Type.String({ maxLength: 200 })),
   faixa: Type.Optional(FaixaUnion),
   clienteId: Type.Optional(Type.String({ format: 'uuid' })),

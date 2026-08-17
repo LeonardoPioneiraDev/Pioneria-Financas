@@ -4,7 +4,7 @@ import { buildGlobusService } from '@/integrations/globus/globus.service.js';
 
 const ComprasPagamentosQuerySchema = Type.Object({
   empresa: Type.Integer({ minimum: 1, default: 4 }),
-  /** Mes no formato YYYY-MM. Se ausente, usa o mes corrente. */
+  /** Mês no formato YYYY-MM. Se ausente, usa o mês corrente. */
   mes: Type.Optional(Type.String({ pattern: '^\\d{4}-(0[1-9]|1[0-2])$' })),
 });
 
@@ -47,9 +47,9 @@ export const globusModule: FastifyPluginAsyncTypebox = async (fastify) => {
       preHandler: [fastify.requireRole('admin', 'cfo', 'controller')],
       schema: {
         tags: ['globus'],
-        summary: 'Relatorio mensal de Compras x Pagamentos x Carteira CPG (GLOBUS Oracle)',
+        summary: 'Relatório mensal de Compras x Pagamentos x Carteira CPG (GLOBUS Oracle)',
         description:
-          'Consome diretamente o schema Oracle do GLOBUS. Exige ORACLE_ENABLED=true e conexao funcional.' +
+          'Consome diretamente o schema Oracle do GLOBUS. Exige ORACLE_ENABLED=true e conexão funcional.' +
           ' Filtros: STATUSNF=F, STATUSITENSNF<>C, STATUSDOCTOCPG<>C, CODTPDOC=NF, CODIGOMATINT<>95079.',
         querystring: ComprasPagamentosQuerySchema,
         response: { 200: ComprasPagamentosResponseSchema },
@@ -67,7 +67,7 @@ export const globusModule: FastifyPluginAsyncTypebox = async (fastify) => {
       });
 
       if (!resultado) {
-        throw fastify.httpErrors.notFound('Sem dados para o periodo');
+        throw fastify.httpErrors.notFound('Sem dados para o período');
       }
 
       return reply.send({

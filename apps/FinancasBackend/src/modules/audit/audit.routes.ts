@@ -5,24 +5,100 @@ import {
   AceitarTermoResponseSchema,
   RegistrarAcessoBodySchema,
   RegistrarAcessoResponseSchema,
+  AuditAcessosQuerySchema,
+  AuditAcessosResponseSchema,
+  AuditAtividadeQuerySchema,
+  AuditAtividadeResponseSchema,
+  AuditResumoQuerySchema,
+  AuditResumoResponseSchema,
   VERSAO_TERMO_ATUAL,
 } from '@pioneira/shared/schemas/audit';
 import { TermoAceite } from '@/entities/termo-aceite.entity.js';
 import { AcessoDados } from '@/entities/acesso-dados.entity.js';
 import { obterIpDoCliente } from '@/shared/utils/client-ip.js';
+import { buildAuditService } from './audit.service.js';
 
 export const auditModule: FastifyPluginAsyncTypebox = async (fastify) => {
   const termoRepo = fastify.db.getRepository(TermoAceite);
   const acessoRepo = fastify.db.getRepository(AcessoDados);
+  const service = buildAuditService(fastify);
 
-  /** Retorna se o usuario atual ja aceitou a versao corrente do termo. */
+  // Consulta da trilha é restrita a papéis de compliance/gestão.
+  const authConsulta = fastify.requireRole('admin', 'cfo', 'controller', 'auditor');
+
+  fastify.get(
+    '/resumo',
+    {
+      preHandler: [authConsulta],
+      schema: {
+        tags: ['audit'],
+        summary: 'Resumo da auditoria (KPIs + opções de filtro) nos últimos N dias',
+        querystring: AuditResumoQuerySchema,
+        response: { 200: AuditResumoResponseSchema },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (req) => service.resumo(req.query),
+  );
+
+  fastify.get(
+    '/acessos',
+    {
+      preHandler: [authConsulta],
+      schema: {
+        tags: ['audit'],
+        summary: 'Lista a trilha de acesso a dados (com filtros e paginação)',
+        querystring: AuditAcessosQuerySchema,
+        response: { 200: AuditAcessosResponseSchema },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (req) => service.listarAcessos(req.query),
+  );
+
+  fastify.get(
+    '/atividade',
+    {
+      preHandler: [authConsulta],
+      schema: {
+        tags: ['audit'],
+        summary: 'Lista a atividade de conta (login/logout/senha) com filtros',
+        querystring: AuditAtividadeQuerySchema,
+        response: { 200: AuditAtividadeResponseSchema },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (req) => service.listarAtividade(req.query),
+  );
+
+  fastify.get(
+    '/export',
+    {
+      preHandler: [authConsulta],
+      schema: {
+        tags: ['audit'],
+        summary: 'Exporta a trilha de acesso filtrada para Excel (auditoria externa)',
+        querystring: AuditAcessosQuerySchema,
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (req, reply) => {
+      const { buffer, filename } = await service.exportarAcessosXlsx(req.query);
+      return reply
+        .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        .header('Content-Disposition', `attachment; filename="${filename}"`)
+        .send(buffer);
+    },
+  );
+
+  /** Retorna se o usuário atual já aceitou a versão corrente do termo. */
   fastify.get(
     '/termo/status',
     {
       preHandler: [fastify.authRequired],
       schema: {
         tags: ['audit'],
-        summary: 'Status do termo de comprometimento do usuario logado',
+        summary: 'Status do termo de comprometimento do usuário logado',
         response: { 200: TermoStatusResponseSchema },
         security: [{ bearerAuth: [] }],
       },
@@ -41,14 +117,14 @@ export const auditModule: FastifyPluginAsyncTypebox = async (fastify) => {
     },
   );
 
-  /** Registra aceite do termo - idempotente (ON CONFLICT na versao). */
+  /** Registra aceite do termo - idempotente (ON CONFLICT na versão). */
   fastify.post(
     '/termo/aceitar',
     {
       preHandler: [fastify.authRequired],
       schema: {
         tags: ['audit'],
-        summary: 'Aceita a versao atual do termo de comprometimento',
+        summary: 'Aceita a versão atual do termo de comprometimento',
         body: AceitarTermoBodySchema,
         response: { 200: AceitarTermoResponseSchema, 201: AceitarTermoResponseSchema },
         security: [{ bearerAuth: [] }],
@@ -63,7 +139,7 @@ export const auditModule: FastifyPluginAsyncTypebox = async (fastify) => {
         where: { usuarioId, versaoTermo: VERSAO_TERMO_ATUAL },
       });
       if (aceite) {
-        // Ja aceitou - retorna 200 idempotente.
+        // Já aceitou - retorna 200 idempotente.
         return reply.code(200).send({
           ok: true,
           versaoAceita: aceite.versaoTermo,
@@ -85,13 +161,13 @@ export const auditModule: FastifyPluginAsyncTypebox = async (fastify) => {
         '[audit] termo de comprometimento aceito',
       );
 
-      // Tambem deixa rastro no acesso_dados.
+      // Também deixa rastro no acesso_dados.
       void acessoRepo
         .insert({
           usuarioId,
           acao: 'visualizou',
           recurso: 'termo-comprometimento',
-          descricao: `Aceitou termo de comprometimento versao ${VERSAO_TERMO_ATUAL}`,
+          descricao: `Aceitou termo de comprometimento versão ${VERSAO_TERMO_ATUAL}`,
           filtros: { versao: VERSAO_TERMO_ATUAL, nome: req.body.nomeDigitado.trim() },
           ipAddress: ip,
           userAgent,
@@ -106,14 +182,14 @@ export const auditModule: FastifyPluginAsyncTypebox = async (fastify) => {
     },
   );
 
-  /** Registra um acesso a dados sensiveis (visualizou, imprimiu, exportou, ...). Fire-and-forget. */
+  /** Registra um acesso a dados sensíveis (visualizou, imprimiu, exportou, ...). Fire-and-forget. */
   fastify.post(
     '/acessou',
     {
       preHandler: [fastify.authRequired],
       schema: {
         tags: ['audit'],
-        summary: 'Registra acesso a dados sensiveis (audit trail)',
+        summary: 'Registra acesso a dados sensíveis (audit trail)',
         body: RegistrarAcessoBodySchema,
         response: { 202: RegistrarAcessoResponseSchema },
         security: [{ bearerAuth: [] }],

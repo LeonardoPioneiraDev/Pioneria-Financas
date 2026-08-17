@@ -1,10 +1,11 @@
 'use client';
 
-import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { ChevronLeft, ChevronRight, LogOut } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useBranding } from '@/hooks/useBranding';
+import { useRessalvasAbertas } from '@/hooks/useRessalvasAbertas';
 import { cn } from '@/lib/utils';
 import { statusModulo, STATUS_COR } from '@/lib/module-status';
 import type { NavigationGroup } from './navigation';
@@ -19,6 +20,8 @@ interface SidebarProps {
 export function Sidebar({ isSidebarExpanded, setIsSidebarExpanded, navigationGroups, handleLogout }: SidebarProps) {
   const pathname = usePathname();
   const { user } = useAuth();
+  const { logoSrc, nomeFantasia } = useBranding();
+  const ressalvasAbertas = useRessalvasAbertas();
 
   return (
     <aside
@@ -35,15 +38,16 @@ export function Sidebar({ isSidebarExpanded, setIsSidebarExpanded, navigationGro
           )}
         >
           <Link href="/dashboard" className="flex items-center gap-2 min-w-0">
-            <Image
-              src="/logo.png"
-              alt="Viacao Pioneira"
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={logoSrc}
+              alt={nomeFantasia}
               width={28}
               height={28}
-              className="shrink-0 rounded-full ring-1 ring-pioneira-400/30"
+              className="h-7 w-7 shrink-0 rounded-full object-cover ring-1 ring-pioneira-400/30"
             />
             {isSidebarExpanded && (
-              <span className="text-sm font-bold text-pioneira-900 dark:text-yellow-300 truncate">Financas</span>
+              <span className="text-sm font-bold text-pioneira-900 dark:text-yellow-300 truncate">Finanças</span>
             )}
           </Link>
           <button
@@ -77,6 +81,7 @@ export function Sidebar({ isSidebarExpanded, setIsSidebarExpanded, navigationGro
                   const Icon = item.icon;
                   const modulo = statusModulo(item.href);
                   const corStatus = modulo ? STATUS_COR[modulo.status] : null;
+                  const temRessalva = item.href === '/validacoes' && ressalvasAbertas > 0;
                   const tituloComStatus = !isSidebarExpanded
                     ? modulo
                       ? `${item.name} — ${corStatus!.label}`
@@ -95,17 +100,31 @@ export function Sidebar({ isSidebarExpanded, setIsSidebarExpanded, navigationGro
                           !isSidebarExpanded && 'justify-center',
                         )}
                       >
-                        <Icon
-                          className={cn(
-                            'h-[18px] w-[18px] shrink-0',
-                            ativo
-                              ? 'text-pioneira-800 dark:text-gray-900'
-                              : 'text-gray-400 dark:text-gray-400 group-hover:text-gray-600 dark:group-hover:text-yellow-300',
+                        <span className="relative shrink-0">
+                          <Icon
+                            className={cn(
+                              'h-[18px] w-[18px] shrink-0',
+                              ativo
+                                ? 'text-pioneira-800 dark:text-gray-900'
+                                : 'text-gray-400 dark:text-gray-400 group-hover:text-gray-600 dark:group-hover:text-yellow-300',
+                            )}
+                          />
+                          {/* Com a sidebar recolhida, o contador vira um ponto no ícone. */}
+                          {temRessalva && !isSidebarExpanded && (
+                            <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-amber-500 ring-2 ring-white dark:ring-black" />
                           )}
-                        />
+                        </span>
                         {isSidebarExpanded && (
                           <>
                             <span className="truncate flex-1">{item.name}</span>
+                            {temRessalva && (
+                              <span
+                                title={`${ressalvasAbertas} ressalva(s) de auditoria sem resposta`}
+                                className="shrink-0 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white"
+                              >
+                                {ressalvasAbertas}
+                              </span>
+                            )}
                             {corStatus && (
                               <span
                                 aria-label={corStatus.label}

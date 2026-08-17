@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label';
 import { api, extrairMensagemErro } from '@/lib/api';
 
 const schema = z.object({
-  email: z.string().email('E-mail invalido'),
+  email: z.string().email('E-mail inválido'),
 });
 type FormValues = z.infer<typeof schema>;
 
@@ -37,7 +37,7 @@ export default function ForgotPasswordPage() {
   return (
     <AuthShell
       titulo="Recuperar senha"
-      subtitulo={enviado ? 'Verifique seu email' : 'Vamos enviar um link para voce redefinir'}
+      subtitulo={enviado ? 'Verifique seu email' : 'Vamos enviar um link para você redefinir'}
     >
       {enviado ? (
         <div className="space-y-6">
@@ -46,7 +46,7 @@ export default function ForgotPasswordPage() {
             <div>
               <AlertTitle className="text-emerald-800 dark:text-emerald-300">Enviado</AlertTitle>
               <AlertDescription className="text-emerald-700 dark:text-emerald-400">
-                Se o email existir, voce recebera um link de recuperacao em instantes. O link expira em 1 hora.
+                Se o email existir, você receberá um link de recuperação em instantes. O link expira em 1 hora.
               </AlertDescription>
             </div>
           </Alert>
@@ -88,7 +88,7 @@ export default function ForgotPasswordPage() {
             </div>
 
             <Button type="submit" size="lg" disabled={form.formState.isSubmitting} className="w-full h-12">
-              {form.formState.isSubmitting ? 'Enviando...' : 'Enviar link de recuperacao'}
+              {form.formState.isSubmitting ? 'Enviando...' : 'Enviar link de recuperação'}
             </Button>
 
             <Link

@@ -3,8 +3,8 @@ import { resolve } from 'node:path';
 import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox';
 import { coletarStatus, type StatusReport } from '@/shared/status/status-checker.js';
 
-// Le a logo uma unica vez na inicializacao e embebe como data URI no HTML
-// (pagina fica self-contained, sem precisar de @fastify/static so para um arquivo).
+// Lê a logo uma única vez na inicialização e embebe como data URI no HTML
+// (página fica self-contained, sem precisar de @fastify/static só para um arquivo).
 function carregarLogoDataUri(): string {
   try {
     const buffer = readFileSync(resolve(process.cwd(), 'public/logo.png'));
@@ -64,7 +64,7 @@ function renderHtml(report: StatusReport, appUrl: string): string {
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Pioneira Financas - API</title>
+<title>Pioneira Finanças - API</title>
 <style>
   :root {
     --bg-grad-1: #fffdf5;
@@ -203,11 +203,11 @@ function renderHtml(report: StatusReport, appUrl: string): string {
   <div class="wrap">
     <header>
       ${LOGO_DATA_URI
-        ? `<img class="logo" src="${LOGO_DATA_URI}" alt="Viacao Pioneira" />`
+        ? `<img class="logo" src="${LOGO_DATA_URI}" alt="Viação Pioneira" />`
         : `<div class="logo-fallback">VP</div>`}
       <div>
-        <h1>Pioneira Financas API</h1>
-        <div class="subtitle">Sistema financeiro v2 - Viacao Pioneira</div>
+        <h1>Pioneira Finanças API</h1>
+        <div class="subtitle">Sistema financeiro v2 - Viação Pioneira</div>
       </div>
     </header>
 
@@ -229,7 +229,7 @@ function renderHtml(report: StatusReport, appUrl: string): string {
     </div>
 
     <div class="card">
-      <h2>Dependencias</h2>
+      <h2>Dependências</h2>
       <ul>${deps}</ul>
     </div>
 
@@ -243,7 +243,7 @@ function renderHtml(report: StatusReport, appUrl: string): string {
     </div>
 
     <footer>
-      © ${new Date().getFullYear()} Viacao Pioneira Ltda - <a href="/" style="color: var(--muted);">Atualizar</a>
+      © ${new Date().getFullYear()} Viação Pioneira Ltda - <a href="/" style="color: var(--muted);">Atualizar</a>
     </footer>
   </div>
   <script>
@@ -260,7 +260,7 @@ export const statusModule: FastifyPluginAsyncTypebox = async (fastify) => {
     {
       schema: {
         tags: ['health'],
-        summary: 'Pagina visual de status (HTML)',
+        summary: 'Página visual de status (HTML)',
         produces: ['text/html'],
       },
     },

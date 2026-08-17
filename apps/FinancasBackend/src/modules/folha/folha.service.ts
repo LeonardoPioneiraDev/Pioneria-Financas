@@ -1,11 +1,31 @@
 import type { FastifyInstance } from 'fastify';
-import type { FolhaCompetenciasQuery, FolhaCompetenciasResponse, CompetenciaFolhaItem, QuebraTipoFolha } from '@pioneira/shared/schemas/folha';
+import type {
+  FolhaCompetenciasQuery,
+  FolhaCompetenciasResponse,
+  CompetenciaFolhaItem,
+  QuebraTipoFolha,
+  FolhaEncargosQuery,
+  FolhaEncargosResponse,
+  CategoriaFolha,
+  FolhaEventoDetalheQuery,
+  FolhaEventoDetalheResponse,
+  FuncionarioEvento,
+} from '@pioneira/shared/schemas/folha';
 import type { TipoFolha } from '@pioneira/shared/enums/tipo-folha';
+import { TIPO_FOLHA_FLP_LABEL } from '@pioneira/shared/enums/tipo-folha-flp';
 import { ContaPagar } from '@/entities/conta-pagar.entity.js';
 import { SyncJob } from '@/entities/sync-job.entity.js';
+import {
+  CATEGORIAS_ENCARGOS_FOLHA,
+  COD_TOTAL_PROVENTOS,
+  COD_TOTAL_DESCONTOS,
+  COD_LIQUIDO_FOLHA,
+  CHAVE_PENSAO,
+  CHAVE_OUTROS_DESCONTOS,
+} from '@/shared/folha/eventos-pioneira.js';
 
 const MES_LABEL: Record<number, string> = {
-  1: 'Janeiro', 2: 'Fevereiro', 3: 'Marco', 4: 'Abril', 5: 'Maio', 6: 'Junho',
+  1: 'Janeiro', 2: 'Fevereiro', 3: 'Março', 4: 'Abril', 5: 'Maio', 6: 'Junho',
   7: 'Julho', 8: 'Agosto', 9: 'Setembro', 10: 'Outubro', 11: 'Novembro', 12: 'Dezembro',
 };
 
@@ -33,6 +53,20 @@ function competenciaLabelFromDate(iso: string): string {
   return `${MES_LABEL[mes] ?? mes}/${ano}`;
 }
 
+/**
+ * Range da competência da folha. A Pioneira grava COMPETFICHA no ÚLTIMO DIA DO
+ * PRÓPRIO MÊS (abril=30/04, maio=31/05), então usamos o MÊS SIMPLES
+ * [YYYY-MM-01, próximo-mês-01) — que pega só o 31/05 para 'maio'.
+ * A janela larga antiga [30/04, 01/06) apanhava DOIS meses e DOBRAVA o valor
+ * (ver Leia/folha-integracao-transversal-2026-07.md, seção 6b).
+ */
+function rangeCompetenciaFolha(yyyyMm: string): { dtIni: string; dtFimExcl: string } {
+  const [ano, mes] = yyyyMm.split('-').map(Number);
+  const dtIni = new Date(Date.UTC(ano!, mes! - 1, 1)).toISOString().slice(0, 10);
+  const dtFimExcl = new Date(Date.UTC(ano!, mes!, 1)).toISOString().slice(0, 10);
+  return { dtIni, dtFimExcl };
+}
+
 /** Converte qualquer entrada de data do TypeORM para string YYYY-MM-DD. */
 function dataIsoOuNull(v: Date | string | null | undefined): string | null {
   if (!v) return null;
@@ -40,7 +74,7 @@ function dataIsoOuNull(v: Date | string | null | undefined): string | null {
   const s = String(v);
   // Pode vir como '2026-04-01' ou '2026-04-01T00:00:00.000Z' ou 'Wed May 13 2026...'
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-  // Ultimo fallback: parsear como Date
+  // Último fallback: parsear como Date
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return null;
   return d.toISOString().slice(0, 10);
@@ -52,13 +86,13 @@ export function buildFolhaService(fastify: FastifyInstance) {
 
   return {
     /**
-     * Agrega todos os titulos com origem_documento='folha' por competencia_flp.
-     * Calcula totais brutos, retencoes detalhadas, valor a pagar (liquido apos
-     * retencoes) e quanto ja foi pago.
+     * Agrega todos os títulos com origem_documento='folha' por competencia_flp.
+     * Calcula totais brutos, retenções detalhadas, valor a pagar (líquido após
+     * retenções) e quanto já foi pago.
      */
     async listarCompetencias(query: FolhaCompetenciasQuery): Promise<FolhaCompetenciasResponse> {
-      // Padrao: filtra pelo mes de PAGAMENTO (data_vencimento) - faz sentido para tesouraria.
-      // Folha de Abril (competencia_flp=2026-04) eh paga em Maio (data_vencimento=2026-05).
+      // Padrão: filtra pelo mês de PAGAMENTO (data_vencimento) - faz sentido para tesouraria.
+      // Folha de Abril (competencia_flp=2026-04) é paga em Maio (data_vencimento=2026-05).
       const filtrarPor = query.filtrarPor ?? 'vencimento';
       const colunaFiltro = filtrarPor === 'competencia' ? 'cp.competencia_flp' : 'cp.data_vencimento';
 
@@ -274,6 +308,194 @@ export function buildFolhaService(fastify: FastifyInstance) {
           totalLocal,
           precisaSincronizar: totalLocal === 0,
         },
+      };
+    },
+
+    /**
+     * Encargos e benefícios da folha REAL (FLP), agregados de finance.ficha_evento
+     * por CODEVENTO. Fonte diferente de listarCompetencias (que só vê o repasse de
+     * pensão no Contas a Pagar). Cada categoria é rastreável até o evento.
+     *
+     * Agrega por código de evento (não por SUM tipo P/D) porque o ETL normaliza
+     * eventos TIPOEVEN A/C para P — somar por tipo inflaria proventos com bases.
+     * Os totais vêm dos totalizadores autoritativos 318/319.
+     */
+    async listarEncargos(query: FolhaEncargosQuery): Promise<FolhaEncargosResponse> {
+      const tipoFolha = query.tipoFolha ?? 1;
+      const { dtIni, dtFimExcl } = rangeCompetenciaFolha(query.competencia);
+
+      const rows = await cpRepo.query<Array<{ cod: number; descricao: string; tipo: string; total: string; qtd_func: string }>>(
+        `SELECT fe.cod_evento AS cod, ev.descricao, ev.tipo,
+                COALESCE(SUM(fe.valor_cents), 0)::text AS total,
+                COUNT(DISTINCT fe.funcionario_id)::text AS qtd_func
+         FROM finance.ficha_evento fe
+         JOIN finance.eventos_folha ev ON ev.cod_evento = fe.cod_evento
+         WHERE fe.competencia >= $1::date AND fe.competencia < $2::date
+           AND fe.tipo_folha = $3
+         GROUP BY fe.cod_evento, ev.descricao, ev.tipo`,
+        [dtIni, dtFimExcl, tipoFolha],
+      );
+
+      const byCod = new Map<number, { descricao: string; tipo: string; valorCents: number; qtdFunc: number }>();
+      for (const r of rows) {
+        byCod.set(Number(r.cod), { descricao: r.descricao, tipo: r.tipo, valorCents: Number(r.total), qtdFunc: Number(r.qtd_func) });
+      }
+      const disponivel = rows.length > 0;
+
+      const proventosCents = byCod.get(COD_TOTAL_PROVENTOS)?.valorCents ?? 0;
+      const descontosCents = byCod.get(COD_TOTAL_DESCONTOS)?.valorCents ?? 0;
+      const liquidoCents = proventosCents - descontosCents;
+
+      const qtdRows = await cpRepo.query<Array<{ qtd: string }>>(
+        `SELECT COUNT(DISTINCT fe.funcionario_id)::text AS qtd
+         FROM finance.ficha_evento fe
+         WHERE fe.competencia >= $1::date AND fe.competencia < $2::date AND fe.tipo_folha = $3`,
+        [dtIni, dtFimExcl, tipoFolha],
+      );
+      const qtdFuncionarios = Number(qtdRows[0]?.qtd ?? 0);
+
+      const categorias: CategoriaFolha[] = [];
+      let pensaoCents = 0;
+      for (const cat of CATEGORIAS_ENCARGOS_FOLHA) {
+        const eventos = cat.codigos
+          .map((cod) => {
+            const e = byCod.get(cod);
+            if (!e || e.valorCents === 0) return null;
+            return { codEvento: cod, descricao: e.descricao, valorCents: e.valorCents };
+          })
+          .filter((e): e is { codEvento: number; descricao: string; valorCents: number } => e !== null)
+          .sort((a, b) => b.valorCents - a.valorCents);
+        const valorCents = eventos.reduce((s, e) => s + e.valorCents, 0);
+        const qtdCat = cat.codigos.reduce((mx, cod) => Math.max(mx, byCod.get(cod)?.qtdFunc ?? 0), 0);
+        if (cat.chave === CHAVE_PENSAO) pensaoCents = valorCents;
+        if (valorCents === 0) continue;
+        categorias.push({
+          chave: cat.chave,
+          label: cat.label,
+          natureza: cat.natureza,
+          valorCents,
+          qtdFuncionarios: qtdCat,
+          eventos,
+        });
+      }
+
+      // "Outros descontos": TODAS as verbas TIPOEVEN='D' que não caem numa categoria
+      // nomeada. Fecha a conta com o total de descontos (evento 319). Cada verba fica
+      // rastreável/clicável (drill-down por evento). Exclui os totalizadores (B).
+      const codigosCategorizados = new Set<number>();
+      for (const cat of CATEGORIAS_ENCARGOS_FOLHA) for (const c of cat.codigos) codigosCategorizados.add(c);
+      const totalizadores = new Set<number>([COD_TOTAL_PROVENTOS, COD_TOTAL_DESCONTOS, COD_LIQUIDO_FOLHA]);
+
+      const outrosEventos = [...byCod.entries()]
+        .filter(([cod, e]) => e.tipo === 'D' && e.valorCents !== 0 && !codigosCategorizados.has(cod) && !totalizadores.has(cod))
+        .map(([cod, e]) => ({ codEvento: cod, descricao: e.descricao, valorCents: e.valorCents, qtdFunc: e.qtdFunc }))
+        .sort((a, b) => b.valorCents - a.valorCents);
+
+      if (outrosEventos.length > 0) {
+        categorias.push({
+          chave: CHAVE_OUTROS_DESCONTOS,
+          label: 'Outros descontos',
+          natureza: 'desconto',
+          valorCents: outrosEventos.reduce((s, e) => s + e.valorCents, 0),
+          qtdFuncionarios: outrosEventos.reduce((mx, e) => Math.max(mx, e.qtdFunc), 0),
+          eventos: outrosEventos.map(({ codEvento, descricao, valorCents }) => ({ codEvento, descricao, valorCents })),
+        });
+      }
+
+      const dispRaw = await cpRepo.query<Array<{ competencia: string; tipo_folha: number; qtd: string }>>(
+        `SELECT to_char(fe.competencia, 'YYYY-MM') AS competencia, fe.tipo_folha,
+                COUNT(DISTINCT fe.funcionario_id)::text AS qtd
+         FROM finance.ficha_evento fe
+         GROUP BY to_char(fe.competencia, 'YYYY-MM'), fe.tipo_folha
+         ORDER BY 1 DESC, 2
+         LIMIT 24`,
+      );
+      const competenciasDisponiveis = dispRaw.map((d) => ({
+        competencia: d.competencia,
+        tipoFolha: Number(d.tipo_folha),
+        qtdFuncionarios: Number(d.qtd),
+      }));
+
+      const syncRaw = await cpRepo.query<Array<{ ultimo: Date | string | null }>>(
+        `SELECT MAX(fe.ultimo_sync_em) AS ultimo FROM finance.ficha_evento fe`,
+      );
+      const ultimoRaw = syncRaw[0]?.ultimo ?? null;
+      const ultimoSyncEm = ultimoRaw ? new Date(ultimoRaw).toISOString() : null;
+
+      const [anoC, mesC] = query.competencia.split('-').map(Number);
+      const competenciaLabel = `${MES_LABEL[mesC!] ?? mesC}/${anoC}`;
+
+      return {
+        disponivel,
+        competencia: query.competencia,
+        competenciaLabel,
+        tipoFolha,
+        tipoFolhaLabel: TIPO_FOLHA_FLP_LABEL[tipoFolha] ?? `Tipo ${tipoFolha}`,
+        qtdFuncionarios,
+        proventosCents,
+        descontosCents,
+        liquidoCents,
+        categorias,
+        pensaoCents,
+        observacoes: [
+          'O INSS patronal (~20% sobre a base) não aparece na folha — é recolhido em guia (GPS). Ver Tributos.',
+          'Vale-transporte não se aplica: os funcionários têm passe livre (empresa de ônibus).',
+          'O salário líquido é depositado direto na conta de cada funcionário, sem passar pela aprovação do financeiro.',
+        ],
+        competenciasDisponiveis,
+        ultimoSyncEm,
+      };
+    },
+
+    /**
+     * Drill-down de uma verba: lista os funcionários que compõem o evento na
+     * competência/tipo, com valor individual. DADO SENSÍVEL (LGPD) — o acesso é
+     * registrado na trilha de auditoria pelo front (recurso folha-encargos-evento).
+     */
+    async detalharEvento(query: FolhaEventoDetalheQuery): Promise<FolhaEventoDetalheResponse> {
+      const tipoFolha = query.tipoFolha ?? 1;
+      const { dtIni, dtFimExcl } = rangeCompetenciaFolha(query.competencia);
+
+      const rows = await cpRepo.query<
+        Array<{ cod_func: string; nome: string; desc_funcao: string | null; desc_area: string | null; referencia: string | null; valor: string }>
+      >(
+        `SELECT f.cod_func, f.nome, f.desc_funcao, f.desc_area,
+                fe.referencia::text AS referencia, fe.valor_cents::text AS valor
+         FROM finance.ficha_evento fe
+         JOIN finance.funcionarios f ON f.id = fe.funcionario_id
+         WHERE fe.competencia >= $1::date AND fe.competencia < $2::date
+           AND fe.tipo_folha = $3 AND fe.cod_evento = $4
+         ORDER BY fe.valor_cents DESC, f.nome`,
+        [dtIni, dtFimExcl, tipoFolha, query.codEvento],
+      );
+
+      const descRows = await cpRepo.query<Array<{ descricao: string }>>(
+        `SELECT descricao FROM finance.eventos_folha WHERE cod_evento = $1`,
+        [query.codEvento],
+      );
+
+      const funcionarios: FuncionarioEvento[] = rows.map((r) => ({
+        codFunc: r.cod_func,
+        nome: r.nome,
+        descFuncao: r.desc_funcao,
+        descArea: r.desc_area,
+        referencia: r.referencia,
+        valorCents: Number(r.valor),
+      }));
+      const totalCents = funcionarios.reduce((s, f) => s + f.valorCents, 0);
+
+      const [anoC, mesC] = query.competencia.split('-').map(Number);
+
+      return {
+        codEvento: query.codEvento,
+        descricao: descRows[0]?.descricao ?? `Evento ${query.codEvento}`,
+        competencia: query.competencia,
+        competenciaLabel: `${MES_LABEL[mesC!] ?? mesC}/${anoC}`,
+        tipoFolha,
+        tipoFolhaLabel: TIPO_FOLHA_FLP_LABEL[tipoFolha] ?? `Tipo ${tipoFolha}`,
+        totalCents,
+        qtdFuncionarios: funcionarios.length,
+        funcionarios,
       };
     },
   };

@@ -7,9 +7,15 @@ import { toast } from 'sonner';
 import {
   Building2, Users, AlertCircle, ArrowLeft, Database, ShieldAlert, RefreshCw,
   DatabaseZap, TrendingUp, TrendingDown, ChevronDown, ChevronRight, Briefcase,
+  Search, FileText, ChevronLeft, Download, Info,
 } from 'lucide-react';
-import type { SetorFolhaResponse, SetorItem, DiagnosticoFlpResponse } from '@pioneira/shared/schemas/folha-detalhe';
+import type {
+  SetorFolhaResponse, SetorItem, DiagnosticoFlpResponse,
+  FuncionariosResponse, ContraChequeResponse,
+} from '@pioneira/shared/schemas/folha-detalhe';
+import { SITUACAO_FOLHA_LABEL } from '@pioneira/shared/schemas/folha-detalhe';
 import { TIPO_FOLHA_FLP_LABEL } from '@pioneira/shared/enums/tipo-folha-flp';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,9 +24,11 @@ import { Badge } from '@/components/ui/badge';
 import { CompliancePill } from '@/components/audit/CompliancePill';
 import { AvisoColapsavel } from '@/components/shared/AvisoColapsavel';
 import { useAuditView, useTrackPrint } from '@/hooks/useAudit';
+import { useAuth } from '@/contexts/AuthContext';
 import { formatarDataHoraCurto } from '@/lib/datetime';
 import { api, extrairMensagemErro } from '@/lib/api';
 import { ModuleStatusBanner } from '@/components/layout/ModuleStatusBanner';
+import { usePodeSincronizar } from '@/hooks/usePodeSincronizar';
 import {
   AjudaComoLerFolhaDetalhe,
   AjudaProventosDescontos,
@@ -35,6 +43,17 @@ import {
   AjudaInsalubridadePericulosidade,
   AjudaVTVA,
 } from './_components/ExplicacoesFolhaDetalhe';
+import { ComparativoView } from './_components/ComparativoView';
+import { FeriasDecimoView } from './_components/FeriasDecimoView';
+import { CustoEncargosView } from './_components/CustoEncargosView';
+
+type AbaFolhaDetalhe = 'setor' | 'comparativo' | 'ferias13' | 'custo';
+const ABAS: ReadonlyArray<{ key: AbaFolhaDetalhe; label: string }> = [
+  { key: 'setor', label: 'Por setor' },
+  { key: 'comparativo', label: 'Comparativo' },
+  { key: 'ferias13', label: 'Férias e 13º' },
+  { key: 'custo', label: 'Custo c/ encargos' },
+];
 
 function moeda(cents: number): string {
   return (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -45,15 +64,55 @@ function moedaCompacta(cents: number): string {
   if (Math.abs(v) >= 1_000) return `R$ ${(v / 1_000).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} K`;
   return moeda(cents);
 }
+type BucketSetor = 'operacional' | 'nao_operacional' | 'a_classificar';
+const BUCKET_META: Record<BucketSetor, { label: string; descricao: string; classe: string }> = {
+  operacional: {
+    label: 'Unidades operacionais',
+    descricao: 'Localidades reconciliadas com as unidades do Contas a Pagar.',
+    classe: 'text-emerald-700 dark:text-emerald-400',
+  },
+  a_classificar: {
+    label: 'A classificar',
+    descricao: 'Terminais/localidades aguardando o financeiro definir a garagem operadora.',
+    classe: 'text-amber-700 dark:text-amber-400',
+  },
+  nao_operacional: {
+    label: 'Não-operacional',
+    descricao: 'Afastados (Sindicato) e imóveis ociosos (União) — fora da comparação entre garagens.',
+    classe: 'text-gray-500 dark:text-gray-400',
+  },
+};
+const ORDEM_BUCKETS: BucketSetor[] = ['operacional', 'a_classificar', 'nao_operacional'];
+
 function competenciaAtual(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
+/**
+ * Competência padrão ao abrir a tela = MÊS ANTERIOR.
+ * A folha de um mês só fecha no fim do mês (pagamento no início do mês
+ * seguinte), então o mês corrente está sempre vazio. Abrir no mês anterior
+ * mostra a última folha fechada (ex.: em julho, abre junho).
+ */
+function competenciaMesAnterior(): string {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
 
 export default function FolhaDetalhePage() {
-  const [competencia, setCompetencia] = useState<string>(competenciaAtual());
+  // Sincronizar com o Globus é ação de administrador.
+  const podeSincronizar = usePodeSincronizar();
+  const [competencia, setCompetencia] = useState<string>(competenciaMesAnterior());
   const [tipoFolha, setTipoFolha] = useState<number | ''>('');
+  const [drillFunc, setDrillFunc] = useState<{ codArea: string | null; descArea: string | null; descFuncao: string | null } | null>(null);
+  const [drillContra, setDrillContra] = useState<{ codFunc: string; nome: string } | null>(null);
+  const [aba, setAba] = useState<AbaFolhaDetalhe>('setor');
   const qc = useQueryClient();
+  const { user } = useAuth();
+  // Contracheque individual é dado sensível (LGPD): só admin ou quem tem a permissão.
+  const podeVerContra = user?.role === 'admin' || (user?.permissoes?.includes('ver_contracheque') ?? false);
 
   useAuditView({
     acao: 'visualizou',
@@ -112,7 +171,7 @@ export default function FolhaDetalhePage() {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap mb-1">
             <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-pioneira-900 via-pioneira-800 to-pioneira-900 dark:from-yellow-300 dark:via-yellow-200 dark:to-yellow-300 bg-clip-text text-transparent">
-              Folha por Setor
+              Custo por Setor
             </h1>
             <CompliancePill recurso="folha-detalhe" />
             <AjudaComoLerFolhaDetalhe />
@@ -129,7 +188,7 @@ export default function FolhaDetalhePage() {
         <Button asChild variant="outline" size="sm">
           <Link href="/folha">
             <ArrowLeft className="h-4 w-4" />
-            Voltar para Folha (encargos)
+            Voltar para Encargos & Benefícios
           </Link>
         </Button>
       </div>
@@ -180,6 +239,26 @@ export default function FolhaDetalhePage() {
         </div>
       </Card>
 
+      {/* Abas de visão */}
+      <div className="flex gap-1 border-b border-gray-200 dark:border-gray-800 overflow-x-auto">
+        {ABAS.map(({ key, label }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setAba(key)}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
+              aba === key
+                ? 'border-pioneira-500 dark:border-yellow-400 text-pioneira-900 dark:text-yellow-200'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-pioneira-700 dark:hover:text-yellow-300'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {aba === 'setor' && (
+        <>
       {isLoading && (
         <Card className="p-12 text-center text-gray-500 dark:text-gray-400">
           <div className="animate-spin rounded-full h-8 w-8 border-4 border-transparent border-t-[#e6cd4a] dark:border-t-yellow-400 mx-auto mb-3" />
@@ -268,19 +347,21 @@ export default function FolhaDetalhePage() {
               Pode levar 30 s a 3 min dependendo do volume.
             </p>
           </div>
-          <Button size="lg" onClick={() => sync.mutate()} disabled={sync.isPending} className="min-w-[280px]">
-            {sync.isPending ? (
-              <>
-                <RefreshCw className="h-4 w-4 animate-spin" />
-                Sincronizando {competencia}…
-              </>
-            ) : (
-              <>
-                <Database className="h-4 w-4" />
-                Sincronizar folha de {competencia}
-              </>
-            )}
-          </Button>
+          {podeSincronizar && (
+            <Button size="lg" onClick={() => sync.mutate()} disabled={sync.isPending} className="min-w-[280px]">
+              {sync.isPending ? (
+                <>
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  Sincronizando {competencia}…
+                </>
+              ) : (
+                <>
+                  <Database className="h-4 w-4" />
+                  Sincronizar folha de {competencia}
+                </>
+              )}
+            </Button>
+          )}
         </Card>
       )}
 
@@ -325,15 +406,37 @@ export default function FolhaDetalhePage() {
               <h2 className="text-lg font-bold text-pioneira-900 dark:text-yellow-200">
                 Por setor ({setores.length})
               </h2>
-              <Button variant="outline" size="sm" onClick={() => sync.mutate()} disabled={sync.isPending}>
-                <RefreshCw className={sync.isPending ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
-                {sync.isPending ? 'Sincronizando' : 'Re-sincronizar'}
-              </Button>
+              {podeSincronizar && (
+                <Button variant="outline" size="sm" onClick={() => sync.mutate()} disabled={sync.isPending}>
+                  <RefreshCw className={sync.isPending ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
+                  {sync.isPending ? 'Sincronizando' : 'Re-sincronizar'}
+                </Button>
+              )}
             </div>
-            <div className="space-y-2">
-              {setores.map((s) => (
-                <SetorCard key={`${s.codArea ?? 'null'}-${s.descArea ?? 'sem-area'}`} setor={s} totalLiquido={totais.liquidoCents} />
-              ))}
+            <div className="space-y-4">
+              {ORDEM_BUCKETS.map((bucket) => {
+                const doBucket = setores.filter((s) => s.bucket === bucket);
+                if (doBucket.length === 0) return null;
+                const meta = BUCKET_META[bucket];
+                return (
+                  <div key={bucket} className="space-y-2">
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <h3 className={`text-xs font-bold uppercase tracking-wider ${meta.classe}`}>
+                        {meta.label} ({doBucket.length})
+                      </h3>
+                      <span className="text-[11px] text-gray-400 dark:text-gray-500">{meta.descricao}</span>
+                    </div>
+                    {doBucket.map((s) => (
+                      <SetorCard
+                        key={`${s.codArea ?? 'null'}-${s.descArea ?? 'sem-area'}`}
+                        setor={s}
+                        totalLiquido={totais.liquidoCents}
+                        onVerFuncionarios={(descFuncao) => setDrillFunc({ codArea: s.codArea, descArea: s.descArea, descFuncao })}
+                      />
+                    ))}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -348,6 +451,39 @@ export default function FolhaDetalhePage() {
             </div>
           </Card>
         </>
+      )}
+        </>
+      )}
+
+      {aba === 'comparativo' && (
+        <ComparativoView competencia={competencia} tipoFolha={typeof tipoFolha === 'number' ? tipoFolha : undefined} />
+      )}
+      {aba === 'ferias13' && <FeriasDecimoView anoInicial={competencia.slice(0, 4)} />}
+      {aba === 'custo' && (
+        <CustoEncargosView competencia={competencia} tipoFolha={typeof tipoFolha === 'number' ? tipoFolha : undefined} />
+      )}
+
+      {drillFunc && (
+        <FuncionariosDialog
+          competencia={competencia}
+          tipoFolha={typeof tipoFolha === 'number' ? tipoFolha : undefined}
+          codArea={drillFunc.codArea}
+          descArea={drillFunc.descArea}
+          descFuncao={drillFunc.descFuncao}
+          podeVerContra={podeVerContra}
+          onVerContra={(codFunc, nome) => setDrillContra({ codFunc, nome })}
+          onClose={() => setDrillFunc(null)}
+        />
+      )}
+
+      {drillContra && (
+        <ContraChequeDialog
+          competencia={competencia}
+          tipoFolha={typeof tipoFolha === 'number' ? tipoFolha : undefined}
+          codFunc={drillContra.codFunc}
+          nome={drillContra.nome}
+          onClose={() => setDrillContra(null)}
+        />
       )}
     </div>
   );
@@ -382,7 +518,7 @@ function ResumoCard({ titulo, valor, sub, icone: Icone, cor, destaque, ajuda }: 
   );
 }
 
-function SetorCard({ setor, totalLiquido }: { setor: SetorItem; totalLiquido: number }) {
+function SetorCard({ setor, totalLiquido, onVerFuncionarios }: { setor: SetorItem; totalLiquido: number; onVerFuncionarios: (descFuncao: string | null) => void }) {
   const [expandido, setExpandido] = useState(false);
   const pctTotal = totalLiquido > 0 ? (setor.liquidoCents / totalLiquido) * 100 : 0;
 
@@ -401,12 +537,21 @@ function SetorCard({ setor, totalLiquido }: { setor: SetorItem; totalLiquido: nu
             <p className="font-semibold text-pioneira-900 dark:text-yellow-200 truncate">
               {setor.descArea ?? `Setor ${setor.codArea ?? '—'}`}
             </p>
-            <Badge variant="muted" className="font-mono text-[10px]">
-              {setor.codArea ?? '—'}
-            </Badge>
+            {setor.codUnidade ? (
+              <Badge variant="muted" className="font-mono text-[10px]" title="Unidade financeira do Contas a Pagar">
+                unid. {setor.codUnidade}
+              </Badge>
+            ) : (
+              <Badge variant="muted" className="font-mono text-[10px]">
+                {setor.codArea ?? '—'}
+              </Badge>
+            )}
           </div>
           <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-            {setor.qtdFuncionarios.toLocaleString('pt-BR')} funcionário{setor.qtdFuncionarios !== 1 ? 's' : ''}
+            {setor.qtdComLiquido.toLocaleString('pt-BR')} na folha
+            {setor.qtdSemLiquido > 0 && (
+              <span className="text-amber-700 dark:text-amber-400"> · {setor.qtdSemLiquido.toLocaleString('pt-BR')} sem líquido</span>
+            )}
             {' · '}
             {pctTotal.toFixed(1)}% do líquido total
           </p>
@@ -431,26 +576,36 @@ function SetorCard({ setor, totalLiquido }: { setor: SetorItem; totalLiquido: nu
             <MetricaLinha titulo="VT + VA" valor={setor.vtCents + setor.vaCents} cor="text-pink-700 dark:text-pink-400" />
           </div>
 
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" onClick={() => onVerFuncionarios(null)}>
+              <Users className="h-3.5 w-3.5" />
+              Ver funcionários do setor
+            </Button>
+          </div>
+
           {setor.porFuncao.length > 0 && (
             <div>
               <h4 className="text-xs font-bold uppercase tracking-wider text-pioneira-800 dark:text-yellow-300 mb-2 flex items-center gap-1.5">
                 <Briefcase className="h-3.5 w-3.5" />
-                Quebra por função
+                Quebra por função <span className="normal-case font-normal text-gray-400 dark:text-gray-500">· clique para ver os funcionários</span>
               </h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                 {setor.porFuncao.map((fn, i) => (
-                  <div
+                  <button
                     key={`${fn.descFuncao}-${i}`}
-                    className="flex items-center justify-between gap-3 p-2 rounded-lg bg-gray-50/60 dark:bg-gray-900/30 border-l-4 border-l-pioneira-400 dark:border-l-yellow-500"
+                    type="button"
+                    onClick={() => onVerFuncionarios(fn.descFuncao)}
+                    className="flex items-center justify-between gap-3 p-2 rounded-lg bg-gray-50/60 dark:bg-gray-900/30 border-l-4 border-l-pioneira-400 dark:border-l-yellow-500 text-left hover:bg-pioneira-50 dark:hover:bg-yellow-950/20 transition-colors group"
                   >
                     <div className="min-w-0">
-                      <p className="text-sm font-semibold truncate">{fn.descFuncao ?? '—'}</p>
-                      <p className="text-[10px] text-gray-500 dark:text-gray-400">
+                      <p className="text-sm font-semibold truncate group-hover:text-pioneira-900 dark:group-hover:text-yellow-200">{fn.descFuncao ?? '—'}</p>
+                      <p className="text-[10px] text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
+                        <Users className="h-3 w-3 text-gray-300 dark:text-gray-600 group-hover:text-pioneira-500 dark:group-hover:text-yellow-400" />
                         {fn.qtdFuncionarios} funcionário{fn.qtdFuncionarios !== 1 ? 's' : ''}
                       </p>
                     </div>
                     <span className="font-mono text-sm font-bold whitespace-nowrap">{moeda(fn.liquidoCents)}</span>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>
@@ -475,6 +630,384 @@ function DiagBox({ titulo, valor, destaque, alerta }: { titulo: string; valor: s
     <div className={`rounded-md p-2 border ${alerta ? 'border-red-300 bg-red-50/70 dark:border-red-700 dark:bg-red-950/30' : 'border-amber-200 bg-white/60 dark:border-amber-800 dark:bg-gray-900/30'}`}>
       <p className="text-[10px] uppercase tracking-wider text-gray-600 dark:text-gray-400 truncate">{titulo}</p>
       <p className={`font-mono text-sm font-bold ${destaque ? 'text-pioneira-900 dark:text-yellow-200' : alerta ? 'text-red-700 dark:text-red-300' : 'text-gray-900 dark:text-gray-100'}`}>{valor}</p>
+    </div>
+  );
+}
+
+// ===================== DRILL-DOWN: FUNCIONÁRIOS DO SETOR/FUNÇÃO =====================
+
+function FuncionariosDialog({
+  competencia,
+  tipoFolha,
+  codArea,
+  descArea,
+  descFuncao,
+  podeVerContra,
+  onVerContra,
+  onClose,
+}: {
+  competencia: string;
+  tipoFolha: number | undefined;
+  codArea: string | null;
+  descArea: string | null;
+  descFuncao: string | null;
+  podeVerContra: boolean;
+  onVerContra: (codFunc: string, nome: string) => void;
+  onClose: () => void;
+}) {
+  const [busca, setBusca] = useState('');
+  const [pagina, setPagina] = useState(1);
+  const [status, setStatus] = useState<'todos' | 'ativo' | 'inativo'>('todos');
+  const [liquido, setLiquido] = useState<'todos' | 'com' | 'sem'>('todos');
+  const [exportando, setExportando] = useState(false);
+
+  // Acesso a dados individuais — registra na trilha de auditoria (LGPD).
+  useAuditView({
+    acao: 'visualizou',
+    recurso: 'folha-detalhe-funcionarios',
+    descricao: `Funcionários — ${descArea ?? codArea ?? 'setor'}${descFuncao ? ` / ${descFuncao}` : ''}`,
+    filtros: { competencia, tipoFolha: tipoFolha ?? null, codArea, descFuncao },
+  });
+
+  const { data, isFetching } = useQuery<FuncionariosResponse>({
+    queryKey: ['folha-detalhe', 'funcionarios', { competencia, tipoFolha, codArea, descFuncao, status, liquido, busca, pagina }],
+    queryFn: async () => {
+      const params: Record<string, string | number> = { competencia, pagina, porPagina: 50 };
+      if (tipoFolha) params.tipoFolha = tipoFolha;
+      if (codArea) params.codArea = codArea;
+      if (descFuncao) params.descFuncao = descFuncao;
+      if (status !== 'todos') params.status = status;
+      if (liquido !== 'todos') params.liquido = liquido;
+      if (busca.trim()) params.busca = busca.trim();
+      const res = await api.get<FuncionariosResponse>('/api/folha-detalhe/funcionarios', { params });
+      return res.data;
+    },
+    placeholderData: (prev) => prev,
+  });
+
+  const titulo = descFuncao ?? (descArea ? descArea : `Setor ${codArea ?? '—'}`);
+  const itens = data?.itens ?? [];
+
+  // Exporta a lista filtrada em Excel. O backend registra na trilha de auditoria.
+  const exportar = async () => {
+    setExportando(true);
+    try {
+      const params: Record<string, string | number> = { competencia };
+      if (tipoFolha) params.tipoFolha = tipoFolha;
+      if (codArea) params.codArea = codArea;
+      if (descFuncao) params.descFuncao = descFuncao;
+      if (status !== 'todos') params.status = status;
+      if (liquido !== 'todos') params.liquido = liquido;
+      if (busca.trim()) params.busca = busca.trim();
+      const res = await api.get('/api/folha-detalhe/export', { params, responseType: 'blob' });
+      const url = URL.createObjectURL(res.data as Blob);
+      const cd = res.headers['content-disposition'] as string | undefined;
+      const nome = cd?.match(/filename="(.+?)"/)?.[1] ?? `folha-${competencia}.xlsx`;
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = nome;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('Exportado em Excel', { description: 'Registrado na trilha de auditoria (usuário, data/hora, filtros).' });
+    } catch (err) {
+      toast.error('Falha ao exportar', { description: extrairMensagemErro(err) });
+    } finally {
+      setExportando(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="mx-3 w-[calc(100%-1.5rem)] sm:w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 min-w-0">
+            <Users className="h-4 w-4 shrink-0 text-pioneira-700 dark:text-yellow-400" />
+            <span className="truncate">{titulo}</span>
+          </DialogTitle>
+          <DialogDescription>
+            {descFuncao && descArea && <>{descArea} · </>}
+            {data ? (
+              <>
+                <strong>{data.total.toLocaleString('pt-BR')}</strong> funcionário{data.total !== 1 ? 's' : ''} · competência {competencia}
+                {tipoFolha ? ` · ${TIPO_FOLHA_FLP_LABEL[tipoFolha] ?? `tipo ${tipoFolha}`}` : ''}
+              </>
+            ) : (
+              'Carregando…'
+            )}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex items-start gap-2 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50/60 dark:bg-amber-950/20 p-2.5 text-[11px] text-amber-900 dark:text-amber-200">
+          <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+          <span>
+            <strong>Dados individuais — LGPD.</strong> Esta consulta está registrada na trilha de auditoria com seu usuário, IP e data/hora.
+          </span>
+        </div>
+
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+          <Input
+            value={busca}
+            onChange={(e) => { setBusca(e.target.value); setPagina(1); }}
+            placeholder="Buscar por nome ou matrícula…"
+            className="pl-8 h-9 text-sm"
+          />
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex rounded-md border border-gray-300 dark:border-gray-700 overflow-hidden text-xs">
+            {(['todos', 'ativo', 'inativo'] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => { setStatus(s); setPagina(1); }}
+                className={`px-2.5 py-1.5 transition-colors ${
+                  status === s
+                    ? 'bg-pioneira-100 dark:bg-yellow-950/40 text-pioneira-900 dark:text-yellow-200 font-medium'
+                    : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                {s === 'todos' ? 'Todos' : s === 'ativo' ? 'Ativos' : 'Inativos'}
+              </button>
+            ))}
+          </div>
+          <div className="flex rounded-md border border-gray-300 dark:border-gray-700 overflow-hidden text-xs">
+            {(['todos', 'com', 'sem'] as const).map((l) => (
+              <button
+                key={l}
+                type="button"
+                onClick={() => { setLiquido(l); setPagina(1); }}
+                title={l === 'sem' ? 'Sem líquido: afastados (INSS paga) ou saldo devedor — não recebem salário, mas geram FGTS' : undefined}
+                className={`px-2.5 py-1.5 transition-colors ${
+                  liquido === l
+                    ? 'bg-pioneira-100 dark:bg-yellow-950/40 text-pioneira-900 dark:text-yellow-200 font-medium'
+                    : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                {l === 'todos' ? 'Todos' : l === 'com' ? 'Na folha' : 'Sem líquido'}
+              </button>
+            ))}
+          </div>
+          <Button variant="outline" size="sm" onClick={exportar} disabled={exportando || itens.length === 0} className="ml-auto">
+            {exportando ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            Exportar Excel
+          </Button>
+        </div>
+
+        {liquido === 'sem' && (
+          <p className="flex items-start gap-1.5 rounded-md bg-amber-50 dark:bg-amber-950/20 p-2 text-[11px] text-amber-900 dark:text-amber-200">
+            <Info className="mt-0.5 h-3 w-3 shrink-0" />
+            <span>
+              <strong>Sem líquido:</strong> não recebem salário na competência (afastados — INSS paga — ou saldo devedor).
+              Não são custo de folha, mas a empresa ainda recolhe o <strong>FGTS</strong> mostrado ao lado de cada um.
+            </span>
+          </p>
+        )}
+
+        {itens.length === 0 ? (
+          <p className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+            {isFetching ? 'Carregando funcionários…' : 'Nenhum funcionário encontrado.'}
+          </p>
+        ) : (
+          <>
+            <div className="rounded-lg border border-gray-100 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800">
+              {itens.map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  disabled={!podeVerContra}
+                  onClick={() => onVerContra(f.codFunc, f.nome)}
+                  title={podeVerContra ? 'Ver contracheque' : 'Sem permissão para abrir o contracheque individual'}
+                  className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-left transition-colors group ${
+                    podeVerContra ? 'hover:bg-pioneira-50 dark:hover:bg-yellow-950/20 cursor-pointer' : 'cursor-default'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <p className={`text-sm font-medium truncate ${podeVerContra ? 'group-hover:text-pioneira-900 dark:group-hover:text-yellow-200' : ''}`}>{f.nome}</p>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
+                      <span className="font-mono">{f.codFunc}</span>
+                      {f.descFuncao && <> · {f.descFuncao}</>}
+                    </p>
+                    {f.situacaoFolha !== 'normal' && (
+                      <span className={`mt-0.5 inline-flex w-fit items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                        f.situacaoFolha === 'saldo_devedor'
+                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200'
+                          : 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200'
+                      }`}>
+                        {SITUACAO_FOLHA_LABEL[f.situacaoFolha]}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-right shrink-0">
+                    {f.liquidoCents === 0 ? (
+                      <>
+                        <p className="font-mono text-sm font-semibold whitespace-nowrap text-gray-400 dark:text-gray-500">R$ 0,00</p>
+                        {f.fgtsCents > 0 && (
+                          <p className="text-[10px] text-amber-700 dark:text-amber-400 whitespace-nowrap">FGTS {moeda(f.fgtsCents)}</p>
+                        )}
+                      </>
+                    ) : (
+                      <p className="font-mono text-sm font-semibold whitespace-nowrap">{moeda(f.liquidoCents)}</p>
+                    )}
+                    {podeVerContra ? (
+                      <p className="text-[10px] text-gray-400 dark:text-gray-500 inline-flex items-center gap-0.5 justify-end">
+                        <FileText className="h-2.5 w-2.5" /> contracheque
+                      </p>
+                    ) : (
+                      <p className="text-[10px] text-gray-400 dark:text-gray-500 inline-flex items-center gap-0.5 justify-end">
+                        <ShieldAlert className="h-2.5 w-2.5" /> restrito
+                      </p>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {data && data.totalPaginas > 1 && (
+              <div className="flex items-center justify-between gap-3 pt-1">
+                <Button variant="outline" size="sm" disabled={pagina <= 1 || isFetching} onClick={() => setPagina((p) => Math.max(1, p - 1))}>
+                  <ChevronLeft className="h-3.5 w-3.5" /> Anterior
+                </Button>
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  Página <strong>{data.pagina}</strong> de <strong>{data.totalPaginas}</strong>
+                </span>
+                <Button variant="outline" size="sm" disabled={pagina >= data.totalPaginas || isFetching} onClick={() => setPagina((p) => p + 1)}>
+                  Próxima <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ===================== DRILL-DOWN: CONTRACHEQUE INDIVIDUAL =====================
+
+function ContraChequeDialog({
+  competencia,
+  tipoFolha,
+  codFunc,
+  nome,
+  onClose,
+}: {
+  competencia: string;
+  tipoFolha: number | undefined;
+  codFunc: string;
+  nome: string;
+  onClose: () => void;
+}) {
+  useAuditView({
+    acao: 'visualizou',
+    recurso: 'folha-detalhe-contracheque',
+    recursoId: codFunc,
+    descricao: `Contracheque ${codFunc} — ${nome}`,
+    filtros: { competencia, tipoFolha: tipoFolha ?? null },
+  });
+
+  const { data, isLoading } = useQuery<ContraChequeResponse>({
+    queryKey: ['folha-detalhe', 'contracheque', { codFunc, competencia, tipoFolha }],
+    queryFn: async () => {
+      const params: Record<string, string | number> = { competencia };
+      if (tipoFolha) params.tipoFolha = tipoFolha;
+      const res = await api.get<ContraChequeResponse>(`/api/folha-detalhe/contra-cheque/${encodeURIComponent(codFunc)}`, { params });
+      return res.data;
+    },
+  });
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="mx-3 w-[calc(100%-1.5rem)] sm:w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 min-w-0">
+            <FileText className="h-4 w-4 shrink-0 text-pioneira-700 dark:text-yellow-400" />
+            <span className="truncate">{data?.funcionario.nome ?? nome}</span>
+          </DialogTitle>
+          <DialogDescription>
+            <span className="font-mono">{codFunc}</span>
+            {data?.funcionario.descFuncao && <> · {data.funcionario.descFuncao}</>}
+            {data?.funcionario.descArea && <> · {data.funcionario.descArea}</>}
+            {' · '}competência {competencia}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex items-start gap-2 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50/60 dark:bg-amber-950/20 p-2.5 text-[11px] text-amber-900 dark:text-amber-200">
+          <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+          <span>
+            <strong>Contracheque individual — LGPD.</strong> Acesso registrado na trilha de auditoria.
+          </span>
+        </div>
+
+        {isLoading || !data ? (
+          <div className="py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+            <div className="animate-spin rounded-full h-6 w-6 border-4 border-transparent border-t-[#e6cd4a] dark:border-t-yellow-400 mx-auto mb-2" />
+            Carregando contracheque…
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <ColunaEventos titulo="Proventos" itens={data.proventos} cor="text-emerald-700 dark:text-emerald-400" />
+              <ColunaEventos titulo="Descontos" itens={data.descontos} cor="text-red-700 dark:text-red-400" />
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 pt-1">
+              <div className="rounded-lg bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40 p-2 text-center">
+                <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Proventos</p>
+                <p className="font-mono text-sm font-bold text-emerald-700 dark:text-emerald-400">{moeda(data.totais.proventosCents)}</p>
+              </div>
+              <div className="rounded-lg bg-red-50/60 dark:bg-red-950/20 border border-red-100 dark:border-red-900/40 p-2 text-center">
+                <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Descontos</p>
+                <p className="font-mono text-sm font-bold text-red-700 dark:text-red-400">{moeda(data.totais.descontosCents)}</p>
+              </div>
+              <div className="rounded-lg bg-pioneira-50 dark:bg-yellow-950/20 border border-pioneira-300 dark:border-yellow-800 p-2 text-center">
+                <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Líquido</p>
+                <p className="font-mono text-sm font-bold text-pioneira-900 dark:text-yellow-200">{moeda(data.totais.liquidoCents)}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] text-gray-600 dark:text-gray-400">
+              <BaseInfo titulo="Base INSS" valor={data.totais.baseInssCents} />
+              <BaseInfo titulo="Base FGTS" valor={data.totais.baseFgtsCents} />
+              <BaseInfo titulo="Base IRRF" valor={data.totais.baseIrrfCents} />
+              <BaseInfo titulo="FGTS do mês" valor={data.totais.fgtsCents} />
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ColunaEventos({ titulo, itens, cor }: { titulo: string; itens: Array<{ codEvento: number; descricao: string; valorCents: number }>; cor: string }) {
+  return (
+    <div className="rounded-lg border border-gray-100 dark:border-gray-800 overflow-hidden">
+      <div className={`px-3 py-1.5 text-xs font-bold uppercase tracking-wider ${cor} bg-gray-50/60 dark:bg-gray-900/30 border-b border-gray-100 dark:border-gray-800`}>
+        {titulo}
+      </div>
+      <div className="divide-y divide-gray-50 dark:divide-gray-800/60">
+        {itens.length === 0 ? (
+          <p className="px-3 py-2 text-[11px] text-gray-400 dark:text-gray-500">—</p>
+        ) : (
+          itens.map((e) => (
+            <div key={e.codEvento} className="flex items-center justify-between gap-2 px-3 py-1.5 text-[11px]">
+              <span className="truncate text-gray-600 dark:text-gray-300">
+                <span className="font-mono text-gray-400 dark:text-gray-500">{e.codEvento}</span> {e.descricao}
+              </span>
+              <span className="font-mono whitespace-nowrap">{moeda(e.valorCents)}</span>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BaseInfo({ titulo, valor }: { titulo: string; valor: number }) {
+  return (
+    <div className="rounded-md bg-gray-50/60 dark:bg-gray-900/30 px-2 py-1.5">
+      <p className="text-[9px] uppercase tracking-wider text-gray-400 dark:text-gray-500">{titulo}</p>
+      <p className="font-mono font-semibold text-gray-700 dark:text-gray-300">{moeda(valor)}</p>
     </div>
   );
 }

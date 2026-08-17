@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import ExcelJS from 'exceljs';
 import type {
   OrcamentoBaselineResponse,
   OrcamentoBaselineAno,
@@ -6,8 +7,12 @@ import type {
   OrcamentoDerivadoResponse,
   OrcamentoDerivadoSetor,
   OrcamentoSyncResponse,
+  OrcamentoMetaResponse,
+  OrcamentoMetaItem,
+  OrcamentoAdotarBody,
 } from '@pioneira/shared';
 import { OrcamentoPrevisao } from '@/entities/orcamento-previsao.entity.js';
+import { OrcamentoMeta } from '@/entities/orcamento-meta.entity.js';
 import { ContaPagar } from '@/entities/conta-pagar.entity.js';
 import { buildGlobusOrcamentoAdapter } from '@/integrations/globus/globus-orcamento.adapter.js';
 import { buildOrcamentoEtl } from '@/etl/orcamento.etl.js';
@@ -62,15 +67,23 @@ function classificarSetor(codSetor: string | null, nome: string | null): Categor
   return 'indefinido';
 }
 
+const MESES_CURTOS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+/** 'AAAA-MM-01' -> 'jun/2026'. */
+function mesLabel(iso: string): string {
+  const [ano, mes] = iso.slice(0, 7).split('-').map(Number);
+  return `${MESES_CURTOS[(mes ?? 1) - 1] ?? mes}/${ano}`;
+}
+
 export function buildOrcamentoService(fastify: FastifyInstance) {
   const repo = fastify.db.getRepository(OrcamentoPrevisao);
   const cpRepo = fastify.db.getRepository(ContaPagar);
+  const metaRepo = fastify.db.getRepository(OrcamentoMeta);
   const adapter = buildGlobusOrcamentoAdapter(fastify);
   const etl = buildOrcamentoEtl(fastify);
 
   return {
     /**
-     * Baseline historico: o orcado legado do Globus (2018-2020) por ano e por
+     * Baseline histórico: o orçado legado do Globus (2018-2020) por ano e por
      * centro de custo do ano mais recente. Prova de conceito + isca pro financeiro.
      */
     async baseline(): Promise<OrcamentoBaselineResponse> {
@@ -174,16 +187,16 @@ export function buildOrcamentoService(fastify: FastifyInstance) {
     },
 
     /**
-     * Orcado DERIVADO do realizado (base tecnica — PROJETADO, nao oficial). Media
-     * mensal do gasto por centro de custo nos ultimos N meses (default 12), como o
-     * Fluxo de Caixa projeta do historico. Realizado = finance.contas_pagar por
-     * setor (rateio_setores, fallback cod_setor pra titulos legados). E despesa.
-     * O financeiro ACEITA ou AJUSTA — o sistema nunca crava isso como orcamento.
+     * Orçado DERIVADO do realizado (base técnica — PROJETADO, não oficial). Média
+     * mensal do gasto por centro de custo nos últimos N meses (default 12), como o
+     * Fluxo de Caixa projeta do histórico. Realizado = finance.contas_pagar por
+     * setor (rateio_setores, fallback cod_setor pra títulos legados). É despesa.
+     * O financeiro ACEITA ou AJUSTA — o sistema nunca crava isso como orçamento.
      */
     async derivado(query: { meses?: number }): Promise<OrcamentoDerivadoResponse> {
       const baseMeses = query.meses && query.meses > 0 ? Math.min(query.meses, 36) : BASE_MESES_PADRAO;
 
-      // Ancora a janela no ultimo mes com gasto (o dado do CP costuma ter defasagem;
+      // Ancora a janela no último mês com gasto (o dado do CP costuma ter defasagem;
       // ancorar em CURRENT_DATE traria meses recentes ainda incompletos).
       const refRows = await cpRepo.query<Array<{ mes_max: string | null }>>(
         `SELECT to_char(date_trunc('month', MAX(COALESCE(cp.data_emissao, cp.data_vencimento))), 'YYYY-MM-DD') AS mes_max
@@ -202,14 +215,20 @@ export function buildOrcamentoService(fastify: FastifyInstance) {
           totalRealizadoCents: 0,
           orcadoMensalSugeridoCents: 0,
           orcadoAnualSugeridoCents: 0,
+          mesComparado: null,
+          mesComparadoLabel: null,
+          realizadoMesTotalCents: 0,
+          qtdEstouros: 0,
+          metaAdotada: false,
+          metaAdotadaEm: null,
           porSetor: [],
           observacoes: ['Sem realizado por centro de custo no Contas a Pagar para derivar um orçado.'],
         };
       }
 
-      // Realizado por setor na janela. Path rateio (titulos ja re-sincronizados,
+      // Realizado por setor na janela. Path rateio (títulos já re-sincronizados,
       // valor por setor) UNION path legado (cod_setor dominante + bruto). Data de
-      // referencia = emissao (fallback vencimento) = "mes em que o custo ocorreu".
+      // referência = emissão (fallback vencimento) = "mês em que o custo ocorreu".
       const rows = await cpRepo.query<
         Array<{ cod_setor: string | null; nome: string | null; meses_com_gasto: string; total_cents: string }>
       >(
@@ -247,15 +266,89 @@ export function buildOrcamentoService(fastify: FastifyInstance) {
         [mesMax, baseMeses],
       );
 
+      // COMPARATIVO: realizado do ÚLTIMO mês COMPLETO (antes do mês corrente) por
+      // setor, pra confrontar com o orçado sugerido (a média). Tudo do CP já no
+      // banco — não depende de sync. Ignora o mês corrente (parcial) pra não
+      // subestimar o realizado.
+      const mesCompRows = await cpRepo.query<Array<{ mes: string | null }>>(
+        `SELECT to_char(MAX(m), 'YYYY-MM-DD') AS mes
+           FROM (
+             SELECT date_trunc('month', COALESCE(data_emissao, data_vencimento))::date AS m
+               FROM finance.contas_pagar
+              WHERE excluido_em IS NULL
+                AND (rateio_setores IS NOT NULL OR cod_setor IS NOT NULL)
+                AND COALESCE(data_emissao, data_vencimento) < date_trunc('month', CURRENT_DATE)
+           ) t`,
+      );
+      const mesComparado = mesCompRows[0]?.mes ?? null;
+
+      const realizadoMesPorSetor = new Map<string | null, number>();
+      if (mesComparado) {
+        const mesRows = await cpRepo.query<Array<{ cod_setor: string | null; total: string }>>(
+          `WITH realizado AS (
+             SELECT e.codigo AS cod_setor, SUM(e."valorCents")::bigint AS valor_cents
+               FROM finance.contas_pagar cp
+               CROSS JOIN LATERAL jsonb_to_recordset(cp.rateio_setores) AS e(codigo text, nome text, "valorCents" bigint)
+              WHERE cp.excluido_em IS NULL AND cp.rateio_setores IS NOT NULL
+                AND date_trunc('month', COALESCE(cp.data_emissao, cp.data_vencimento)) = $1::date
+              GROUP BY e.codigo
+             UNION ALL
+             SELECT cp.cod_setor, SUM(cp.valor_bruto_cents)::bigint
+               FROM finance.contas_pagar cp
+              WHERE cp.excluido_em IS NULL AND cp.rateio_setores IS NULL AND cp.cod_setor IS NOT NULL
+                AND date_trunc('month', COALESCE(cp.data_emissao, cp.data_vencimento)) = $1::date
+              GROUP BY cp.cod_setor
+           )
+           SELECT cod_setor, SUM(valor_cents)::text AS total FROM realizado GROUP BY cod_setor`,
+          [mesComparado],
+        );
+        for (const r of mesRows) realizadoMesPorSetor.set(r.cod_setor, Number(r.total));
+      }
+
+      // Meta adotada pelo financeiro (orçado de referência). Se existe, o comparativo
+      // usa a META como orçado; senão usa a média sugerida. DEGRADA com segurança se
+      // a tabela ainda não existir (migration não rodada): o derivado é consumido pelo
+      // Painel CFO, então não pode derrubar o painel inteiro por causa disso.
+      const empresaId = fastify.config.globus.empresaId;
+      let metaRows: Array<{ cod: number; orcado: string; adotado_em: string | null }> = [];
+      try {
+        metaRows = await metaRepo.query<Array<{ cod: number; orcado: string; adotado_em: string | null }>>(
+          `SELECT cod_custo_fin AS cod, orcado_mensal_cents::text AS orcado, adotado_em::text AS adotado_em
+             FROM finance.orcamento_meta WHERE empresa_id = $1 AND excluido_em IS NULL`,
+          [empresaId],
+        );
+      } catch (err) {
+        fastify.log.warn({ err }, '[orcamento] finance.orcamento_meta indisponível — usando só a base técnica (rode migration:run)');
+      }
+      const metaPorSetor = new Map<string, number>();
+      let metaAdotadaEmMax: string | null = null;
+      for (const m of metaRows) {
+        metaPorSetor.set(String(m.cod), Number(m.orcado));
+        if (m.adotado_em && (!metaAdotadaEmMax || m.adotado_em > metaAdotadaEmMax)) metaAdotadaEmMax = m.adotado_em;
+      }
+      const metaAdotada = metaRows.length > 0;
+
       const porSetor: OrcamentoDerivadoSetor[] = rows.map((r) => {
         const realizadoCents = Number(r.total_cents);
+        const mensalSugeridoCents = Math.round(realizadoCents / baseMeses);
+        const realizadoMesCents = realizadoMesPorSetor.get(r.cod_setor) ?? 0;
+        const metaMensalCents = metaPorSetor.get((r.cod_setor ?? '').trim()) ?? null;
+        // Orçado de referência = meta adotada, se houver; senão a média sugerida.
+        const orcadoRef = metaMensalCents ?? mensalSugeridoCents;
+        const variacaoPerc = orcadoRef > 0
+          ? Number(((realizadoMesCents / orcadoRef) * 100).toFixed(1))
+          : 0;
         return {
           codSetor: r.cod_setor,
           nome: r.nome,
           categoria: classificarSetor(r.cod_setor, r.nome),
           realizadoCents,
           mesesComGasto: Number(r.meses_com_gasto),
-          mensalSugeridoCents: Math.round(realizadoCents / baseMeses),
+          mensalSugeridoCents,
+          realizadoMesCents,
+          variacaoPerc,
+          estourou: orcadoRef > 0 && realizadoMesCents > 0 && variacaoPerc > 110,
+          metaMensalCents,
         };
       });
 
@@ -263,11 +356,15 @@ export function buildOrcamentoService(fastify: FastifyInstance) {
 
       const totalRealizadoCents = porSetor.reduce((s, x) => s + x.realizadoCents, 0);
       const orcadoMensalSugeridoCents = porSetor.reduce((s, x) => s + x.mensalSugeridoCents, 0);
+      const realizadoMesTotalCents = porSetor.reduce((s, x) => s + x.realizadoMesCents, 0);
+      const qtdEstouros = porSetor.filter((x) => x.estourou).length;
 
       // Janela: [mesMax - (baseMeses-1) meses, mesMax].
       const [ay, am] = mesMax.slice(0, 7).split('-').map(Number);
       const iniDate = new Date(Date.UTC(ay!, am! - 1 - (baseMeses - 1), 1));
       const mesInicio = iniDate.toISOString().slice(0, 10);
+
+      const mesComparadoLabel = mesComparado ? mesLabel(mesComparado) : null;
 
       return {
         disponivel: true,
@@ -277,11 +374,22 @@ export function buildOrcamentoService(fastify: FastifyInstance) {
         totalRealizadoCents,
         orcadoMensalSugeridoCents,
         orcadoAnualSugeridoCents: orcadoMensalSugeridoCents * 12,
+        mesComparado,
+        mesComparadoLabel,
+        realizadoMesTotalCents,
+        qtdEstouros,
+        metaAdotada,
+        metaAdotadaEm: metaAdotadaEmMax ? new Date(metaAdotadaEmMax).toISOString() : null,
         porSetor,
         observacoes: [
           `Base técnica PROJETADA — não é o orçamento oficial. É a média mensal do que cada setor gastou de fato nos últimos ${baseMeses} meses (Contas a Pagar por centro de custo).`,
           'Mesma lógica do Fluxo de Caixa: o sistema não inventa o futuro, projeta a partir do histórico real.',
           'É uma SUGESTÃO para o financeiro partir dela e ajustar (inflação, metas, cortes) — não um valor cravado.',
+          ...(mesComparadoLabel
+            ? [
+                `Comparativo: o "realizado ${mesComparadoLabel}" é o gasto do último mês COMPLETO de cada setor, confrontado com o orçado sugerido (a média). Estouro = passou de 110% da média — sinal de que o mês fugiu do padrão do próprio setor.`,
+              ]
+            : []),
           ...(temCentral
             ? [
                 'ATENÇÃO à ADMINISTRAÇÃO: ela concentra o PAGAMENTO das dívidas dos outros setores, então o valor dela NÃO é custo próprio — aparece inflado. Só 4 unidades geram receita (garagens operacionais); as demais são apoio/custo.',
@@ -292,7 +400,128 @@ export function buildOrcamentoService(fastify: FastifyInstance) {
       };
     },
 
-    /** Sync do baseline: CPGORCPREVISOES (Globus) -> stage -> canonico. */
+    /** Orçado de referência adotado (meta) por setor. Vazio = ainda não adotaram. */
+    async metaAtual(): Promise<OrcamentoMetaResponse> {
+      const empresaId = fastify.config.globus.empresaId;
+      const rows = await metaRepo.query<
+        Array<{ cod: number; nome: string | null; categoria: string; orcado: string; base: string; obs: string | null; adotado_em: string | null }>
+      >(
+        `SELECT cod_custo_fin AS cod, nome, categoria,
+                orcado_mensal_cents::text AS orcado, base_sugerido_cents::text AS base,
+                observacao AS obs, adotado_em::text AS adotado_em
+           FROM finance.orcamento_meta
+          WHERE empresa_id = $1 AND excluido_em IS NULL
+          ORDER BY orcado_mensal_cents DESC`,
+        [empresaId],
+      );
+      const itens: OrcamentoMetaItem[] = rows.map((r) => ({
+        codCustoFin: Number(r.cod),
+        nome: r.nome,
+        categoria: r.categoria,
+        orcadoMensalCents: Number(r.orcado),
+        baseSugeridoCents: Number(r.base),
+        observacao: r.obs,
+      }));
+      const adotadoEmMax = rows.reduce<string | null>(
+        (acc, r) => (r.adotado_em && (!acc || r.adotado_em > acc) ? r.adotado_em : acc),
+        null,
+      );
+      return {
+        adotado: itens.length > 0,
+        adotadoEm: adotadoEmMax ? new Date(adotadoEmMax).toISOString() : null,
+        totalMensalCents: itens.reduce((s, x) => s + x.orcadoMensalCents, 0),
+        itens,
+      };
+    },
+
+    /** Adota/ajusta o orçado de referência por setor (upsert). Reflete no comparativo. */
+    async adotarMeta(args: { itens: OrcamentoAdotarBody['itens']; usuarioId: string }): Promise<OrcamentoMetaResponse> {
+      const empresaId = fastify.config.globus.empresaId;
+      const agora = new Date();
+      // Estado ANTES (por centro de custo) pra registrar o diff campo-a-campo.
+      const metaAntes = await this.metaAtual();
+      const antesPorCusto = new Map(metaAntes.itens.map((i) => [i.codCustoFin, i]));
+      for (const it of args.itens) {
+        await metaRepo.query(
+          `INSERT INTO finance.orcamento_meta
+             (empresa_id, cod_custo_fin, nome, categoria, orcado_mensal_cents, base_sugerido_cents, observacao, adotado_por_usuario_id, adotado_em)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           ON CONFLICT (empresa_id, cod_custo_fin)
+           DO UPDATE SET
+             nome = EXCLUDED.nome,
+             categoria = EXCLUDED.categoria,
+             orcado_mensal_cents = EXCLUDED.orcado_mensal_cents,
+             base_sugerido_cents = EXCLUDED.base_sugerido_cents,
+             observacao = EXCLUDED.observacao,
+             adotado_por_usuario_id = EXCLUDED.adotado_por_usuario_id,
+             adotado_em = EXCLUDED.adotado_em,
+             atualizado_em = NOW(),
+             excluido_em = NULL`,
+          [
+            empresaId, it.codCustoFin, it.nome ?? null, it.categoria ?? 'indefinido',
+            it.orcadoMensalCents, it.baseSugeridoCents ?? 0, it.observacao ?? null, args.usuarioId, agora,
+          ],
+        );
+
+        const antesIt = antesPorCusto.get(it.codCustoFin);
+        await fastify.auditoria.registrarAlteracao({
+          usuarioId: args.usuarioId,
+          recurso: 'orcamento',
+          recursoId: String(it.codCustoFin),
+          descricao: `Meta de orçamento — ${it.nome ?? it.codCustoFin}`,
+          antes: {
+            orcadoMensalCents: antesIt?.orcadoMensalCents ?? null,
+            observacao: antesIt?.observacao ?? null,
+          },
+          depois: { orcadoMensalCents: it.orcadoMensalCents, observacao: it.observacao ?? null },
+        });
+      }
+      fastify.log.info({ setores: args.itens.length, usuarioId: args.usuarioId }, '[orcamento] meta adotada/ajustada');
+      return this.metaAtual();
+    },
+
+    /** Export XLSX do comparativo (setor x orçado x realizado do mês x variação/estouro). */
+    async exportarComparativoXlsx(): Promise<{ buffer: Buffer; filename: string }> {
+      const der = await this.derivado({});
+      const CAT_LABEL: Record<string, string> = {
+        receita: 'Gera receita', apoio: 'Apoio/custo', central: 'Central (paga dívidas)', indefinido: 'Não classificado',
+      };
+
+      const wb = new ExcelJS.Workbook();
+      wb.creator = 'Pioneira Financas';
+      const ws = wb.addWorksheet('Orçamento', { views: [{ state: 'frozen', ySplit: 1 }] });
+      ws.columns = [
+        { header: 'Setor', key: 'setor', width: 32 },
+        { header: 'Natureza', key: 'cat', width: 20 },
+        { header: 'Orçado mensal (R$)', key: 'orcado', width: 20 },
+        { header: 'Fonte do orçado', key: 'fonte', width: 16 },
+        { header: `Realizado ${der.mesComparadoLabel ?? ''} (R$)`, key: 'real', width: 22 },
+        { header: 'Variação %', key: 'var', width: 12 },
+        { header: 'Estouro', key: 'estouro', width: 10 },
+      ];
+      for (const s of der.porSetor) {
+        const orcado = s.metaMensalCents ?? s.mensalSugeridoCents;
+        ws.addRow({
+          setor: s.nome ?? (s.codSetor ?? 'Sem centro de custo'),
+          cat: CAT_LABEL[s.categoria] ?? s.categoria,
+          orcado: orcado / 100,
+          fonte: s.metaMensalCents !== null ? 'Meta adotada' : 'Base técnica',
+          real: s.realizadoMesCents / 100,
+          var: s.variacaoPerc,
+          estouro: s.estourou ? 'SIM' : '',
+        });
+      }
+      ws.getColumn('orcado').numFmt = '#,##0.00';
+      ws.getColumn('real').numFmt = '#,##0.00';
+      ws.getColumn('var').numFmt = '0.0';
+      ws.getRow(1).font = { bold: true };
+
+      const buffer = Buffer.from(await wb.xlsx.writeBuffer());
+      const suf = der.mesComparado ? der.mesComparado.slice(0, 7) : 'atual';
+      return { buffer, filename: `orcamento-${suf}.xlsx` };
+    },
+
+    /** Sync do baseline: CPGORCPREVISOES (Globus) -> stage -> canônico. */
     async sincronizar(args: { usuarioId: string }): Promise<OrcamentoSyncResponse> {
       const inicio = Date.now();
       const empresa = fastify.config.globus.empresaId;

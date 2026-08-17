@@ -37,7 +37,7 @@ function toResponse(b: BoletoEmitido): BoletoEmitidoResponse {
 }
 
 /**
- * Gera linha digitavel MOCK no formato 47 digitos (sem checksum real).
+ * Gera linha digitável MOCK no formato 47 dígitos (sem checksum real).
  * Formato visual: 99999.99999 99999.999999 99999.999999 9 99999999999999
  */
 function gerarLinhaDigitavelMock(bancoCodigo: string, valorCents: number, vencimento: string): string {
@@ -56,7 +56,7 @@ function gerarCodigoBarrasMock(bancoCodigo: string, valorCents: number): string 
 
 /**
  * Gera QR Code PIX (string EMV BR Code simplificada). Apenas demonstrativo —
- * a string nao gera QR escaneavel real, mas tem o formato esperado.
+ * a string não gera QR escaneável real, mas tem o formato esperado.
  */
 function gerarQrPixMock(valorCents: number, cnpj: string, descricao: string): { qr: string; txid: string } {
   const txid = crypto.randomBytes(13).toString('hex').toUpperCase();
@@ -91,7 +91,7 @@ export function buildBoletosPixService(fastify: FastifyInstance) {
         .leftJoinAndSelect('cr.cliente', 'cli')
         .where("cr.status IN ('aberto','renegociado')")
         .andWhere('cr.excluido_em IS NULL')
-        // PROPERTY name no orderBy (nao coluna do banco): leftJoinAndSelect + limit
+        // PROPERTY name no orderBy (não coluna do banco): leftJoinAndSelect + limit
         // cai no caminho combined-select do TypeORM, que resolve por property.
         .orderBy('cr.dataVencimento', 'ASC')
         .limit(500)
@@ -142,12 +142,12 @@ export function buildBoletosPixService(fastify: FastifyInstance) {
 
     async emitirBoleto(args: { body: EmitirBoletoBody; usuarioId: string }): Promise<BoletoEmitidoResponse> {
       const banco = BANCOS_CNAB.find((b) => b.codigo === args.body.bancoCodigo);
-      if (!banco) throw fastify.httpErrors.badRequest(`Banco ${args.body.bancoCodigo} nao suportado`);
+      if (!banco) throw fastify.httpErrors.badRequest(`Banco ${args.body.bancoCodigo} não suportado`);
 
       const cr = await crRepo.findOne({ where: { id: args.body.contaReceberId } });
-      if (!cr) throw fastify.httpErrors.notFound('CR nao encontrado');
+      if (!cr) throw fastify.httpErrors.notFound('CR não encontrado');
       if (cr.excluidoEm || cr.status === 'cancelado') {
-        throw fastify.httpErrors.conflict('CR excluido/cancelado nao pode receber boleto');
+        throw fastify.httpErrors.conflict('CR excluído/cancelado não pode receber boleto');
       }
 
       const valorCents = Number(cr.valorBrutoCents);
@@ -170,7 +170,7 @@ export function buildBoletosPixService(fastify: FastifyInstance) {
         status: 'emitido',
         modo: 'mock',
         emitidoPorId: args.usuarioId,
-        observacao: 'Boleto gerado em modo MOCK — sem integracao real com banco.',
+        observacao: 'Boleto gerado em modo MOCK — sem integração real com banco.',
       });
       await boletoRepo.save(novo);
       fastify.log.info({ boletoId: novo.id, crId: cr.id, banco: banco.codigo }, '[boletos-pix] boleto MOCK emitido');
@@ -179,9 +179,9 @@ export function buildBoletosPixService(fastify: FastifyInstance) {
 
     async emitirPix(args: { body: EmitirPixBody; usuarioId: string }): Promise<BoletoEmitidoResponse> {
       const cr = await crRepo.findOne({ where: { id: args.body.contaReceberId } });
-      if (!cr) throw fastify.httpErrors.notFound('CR nao encontrado');
+      if (!cr) throw fastify.httpErrors.notFound('CR não encontrado');
       if (cr.excluidoEm || cr.status === 'cancelado') {
-        throw fastify.httpErrors.conflict('CR excluido/cancelado nao pode receber PIX');
+        throw fastify.httpErrors.conflict('CR excluído/cancelado não pode receber PIX');
       }
 
       const valorCents = Number(cr.valorBrutoCents);
@@ -202,7 +202,7 @@ export function buildBoletosPixService(fastify: FastifyInstance) {
         status: 'emitido',
         modo: 'mock',
         emitidoPorId: args.usuarioId,
-        observacao: 'PIX gerado em modo MOCK — string EMV nao escaneavel.',
+        observacao: 'PIX gerado em modo MOCK — string EMV não escaneável.',
       });
       await boletoRepo.save(novo);
       fastify.log.info({ pixId: novo.id, crId: cr.id }, '[boletos-pix] PIX MOCK emitido');

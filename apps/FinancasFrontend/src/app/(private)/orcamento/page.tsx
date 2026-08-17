@@ -1,15 +1,17 @@
 'use client';
 
 import Link from 'next/link';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ClipboardList, RefreshCw, Loader2, Info, TrendingUp, TrendingDown, CalendarRange, Building2, ArrowRight, HelpCircle } from 'lucide-react';
-import type { OrcamentoBaselineResponse, OrcamentoDerivadoResponse, OrcamentoSyncResponse } from '@pioneira/shared';
+import { ClipboardList, RefreshCw, Loader2, Info, TrendingUp, TrendingDown, CalendarRange, Building2, ArrowRight, HelpCircle, Pencil, Check, X, Download } from 'lucide-react';
+import type { OrcamentoBaselineResponse, OrcamentoDerivadoResponse, OrcamentoDerivadoSetor, OrcamentoSyncResponse } from '@pioneira/shared';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { api, extrairMensagemErro } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { ModuleStatusBanner } from '@/components/layout/ModuleStatusBanner';
+import { usePodeSincronizar } from '@/hooks/usePodeSincronizar';
 
 function moeda(cents: number): string {
   return (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -63,6 +65,8 @@ const CATEGORIA_META: Record<string, { label: string; badge: string; barra: stri
 };
 
 export default function OrcamentoPage() {
+  // Sincronizar com o Globus e ação de administrador.
+  const podeSincronizar = usePodeSincronizar();
   const qc = useQueryClient();
 
   const derivadoQ = useQuery<OrcamentoDerivadoResponse>({
@@ -98,6 +102,65 @@ export default function OrcamentoPage() {
   const der = derivadoQ.data;
   const derDisponivel = !!der?.disponivel;
 
+  // --- Adotar/ajustar o orçado de referência (meta) ---
+  const [editando, setEditando] = useState(false);
+  const [rascunho, setRascunho] = useState<Record<string, string>>({}); // codSetor -> valor em reais
+  const [fator, setFator] = useState('');
+
+  const setoresEditaveis = (der?.porSetor ?? []).filter((s): s is OrcamentoDerivadoSetor & { codSetor: string } => s.codSetor !== null);
+  const orcadoRef = (s: OrcamentoDerivadoSetor): number => s.metaMensalCents ?? s.mensalSugeridoCents;
+  const orcadoRefTotalCents = (der?.porSetor ?? []).reduce((a, s) => a + orcadoRef(s), 0);
+
+  function iniciarEdicao() {
+    const inicial: Record<string, string> = {};
+    for (const s of setoresEditaveis) inicial[s.codSetor] = (orcadoRef(s) / 100).toFixed(2);
+    setRascunho(inicial);
+    setFator('');
+    setEditando(true);
+  }
+  function aplicarFator() {
+    const f = Number(fator.replace(',', '.'));
+    if (!Number.isFinite(f)) return;
+    const novo: Record<string, string> = {};
+    for (const s of setoresEditaveis) novo[s.codSetor] = ((s.mensalSugeridoCents / 100) * (1 + f / 100)).toFixed(2);
+    setRascunho(novo);
+  }
+
+  const adotarM = useMutation({
+    mutationFn: async () => {
+      const itens = setoresEditaveis.map((s) => ({
+        codCustoFin: Number(s.codSetor),
+        nome: s.nome,
+        categoria: s.categoria,
+        orcadoMensalCents: Math.round(Number((rascunho[s.codSetor] ?? '0').replace(',', '.')) * 100),
+        baseSugeridoCents: s.mensalSugeridoCents,
+      }));
+      return (await api.post('/api/orcamento/meta', { itens })).data;
+    },
+    onSuccess: () => {
+      toast.success('Orçado de referência adotado. O comparativo agora usa a sua meta.');
+      void qc.invalidateQueries({ queryKey: ['orcamento'] });
+      setEditando(false);
+    },
+    onError: (err) => toast.error(extrairMensagemErro(err)),
+  });
+
+  async function exportar() {
+    try {
+      const res = await api.get('/api/orcamento/export', { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `orcamento-${der?.mesComparado?.slice(0, 7) ?? 'atual'}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(extrairMensagemErro(err));
+    }
+  }
+
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6">
       {/* Cabeçalho */}
@@ -112,10 +175,12 @@ export default function OrcamentoPage() {
             referência e de ponto de partida para o financeiro confirmar o eixo e o formato do orçamento atual.
           </p>
         </div>
-        <Button onClick={() => syncM.mutate()} disabled={syncM.isPending} variant="outline" size="sm">
-          {syncM.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-          <span className="ml-2">Sincronizar baseline</span>
-        </Button>
+        {podeSincronizar && (
+          <Button onClick={() => syncM.mutate()} disabled={syncM.isPending} variant="outline" size="sm">
+            {syncM.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            <span className="ml-2">Sincronizar baseline</span>
+          </Button>
+        )}
       </div>
 
       <ModuleStatusBanner href="/orcamento" />
@@ -125,18 +190,61 @@ export default function OrcamentoPage() {
       <Card className="p-4">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <h2 className="flex items-center gap-2 text-sm font-semibold">
-              Orçado sugerido — base técnica
-              <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700 dark:bg-sky-950/50 dark:text-sky-300">
-                projetado
+            <h2 className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+              {der?.metaAdotada ? 'Orçado de referência' : 'Orçado sugerido — base técnica'}
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${der?.metaAdotada ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300'}`}>
+                {der?.metaAdotada ? 'adotado' : 'projetado'}
               </span>
             </h2>
             <p className="mt-1 max-w-2xl text-xs text-gray-500 dark:text-gray-400">
-              Média mensal do que cada setor gastou de fato nos últimos {der?.baseMeses ?? 12} meses (Contas a Pagar por
-              centro de custo). Igual ao Fluxo de Caixa, o sistema projeta do histórico — <strong>não é o orçamento
-              oficial</strong>, é uma sugestão para o financeiro partir dela e ajustar.
+              {der?.metaAdotada ? (
+                <>
+                  Orçado adotado pelo financeiro (partiu da base técnica e foi ajustado). O comparativo usa esta meta.{' '}
+                  {der?.metaAdotadaEm ? `Adotado em ${new Date(der.metaAdotadaEm).toLocaleDateString('pt-BR')}.` : ''}
+                </>
+              ) : (
+                <>
+                  Média mensal do que cada setor gastou de fato nos últimos {der?.baseMeses ?? 12} meses (Contas a Pagar por
+                  centro de custo). <strong>Não é o orçamento oficial</strong> — é uma sugestão para o financeiro partir dela e
+                  ajustar (aí vira a sua meta).
+                </>
+              )}
             </p>
           </div>
+
+          {derDisponivel && (
+            <div className="flex items-center gap-2">
+              {editando ? (
+                <>
+                  <div className="flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 dark:border-gray-700">
+                    <span className="text-[11px] text-gray-500">fator</span>
+                    <input
+                      type="number"
+                      value={fator}
+                      onChange={(e) => setFator(e.target.value)}
+                      placeholder="±%"
+                      className="w-14 bg-transparent text-xs outline-none"
+                    />
+                    <button type="button" onClick={aplicarFator} className="text-[11px] font-semibold text-pioneira-700 dark:text-yellow-400">aplicar</button>
+                  </div>
+                  <Button onClick={() => adotarM.mutate()} disabled={adotarM.isPending} size="sm">
+                    {adotarM.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                    <span className="ml-1">Salvar</span>
+                  </Button>
+                  <Button onClick={() => setEditando(false)} variant="outline" size="sm"><X className="h-4 w-4" /></Button>
+                </>
+              ) : (
+                <>
+                  <Button onClick={iniciarEdicao} variant="outline" size="sm">
+                    <Pencil className="h-4 w-4" /><span className="ml-1">{der?.metaAdotada ? 'Ajustar' : 'Adotar/ajustar'}</span>
+                  </Button>
+                  <Button onClick={exportar} variant="outline" size="sm">
+                    <Download className="h-4 w-4" /><span className="ml-1">Exportar</span>
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {derivadoQ.isLoading ? (
@@ -149,12 +257,12 @@ export default function OrcamentoPage() {
           <>
             <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-3">
               <div className="rounded-lg border border-sky-200 bg-sky-50/60 p-3 dark:border-sky-900/40 dark:bg-sky-950/20">
-                <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Orçado mensal sugerido</p>
-                <p className="mt-1 text-2xl font-semibold tabular-nums text-sky-700 dark:text-sky-300">{moeda(der!.orcadoMensalSugeridoCents)}</p>
+                <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{der!.metaAdotada ? 'Orçado mensal (adotado)' : 'Orçado mensal sugerido'}</p>
+                <p className="mt-1 text-2xl font-semibold tabular-nums text-sky-700 dark:text-sky-300">{moeda(orcadoRefTotalCents)}</p>
               </div>
               <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
-                <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Orçado anual sugerido</p>
-                <p className="mt-1 text-2xl font-semibold tabular-nums">{moedaCurta(der!.orcadoAnualSugeridoCents)}</p>
+                <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Orçado anual</p>
+                <p className="mt-1 text-2xl font-semibold tabular-nums">{moedaCurta(orcadoRefTotalCents * 12)}</p>
               </div>
               <div className="col-span-2 rounded-lg border border-gray-200 p-3 dark:border-gray-700 lg:col-span-1">
                 <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Janela do cálculo</p>
@@ -163,11 +271,29 @@ export default function OrcamentoPage() {
               </div>
             </div>
 
+            {der!.mesComparado && (
+              <div className="mt-4 rounded-lg border border-gray-200 p-3 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/30">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm">
+                    <strong>Realizado × orçado sugerido</strong> — {der!.mesComparadoLabel} (último mês completo):{' '}
+                    <span className="font-semibold tabular-nums">{moedaCurta(der!.realizadoMesTotalCents)}</span> realizado ·{' '}
+                    <span className="font-semibold tabular-nums">{moedaCurta(orcadoRefTotalCents)}</span> orçado
+                  </p>
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${der!.qtdEstouros > 0 ? 'bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'}`}>
+                    {der!.qtdEstouros > 0 ? `${der!.qtdEstouros} setor(es) acima de 110%` : 'nenhum estouro'}
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                  Estouro = o setor gastou mais de 110% da própria média mensal nesse mês. Não é orçamento oficial — é o ritmo do próprio setor.
+                </p>
+              </div>
+            )}
+
             <div className="mt-4 space-y-5">
               {CATEGORIA_ORDEM.filter((cat) => der!.porSetor.some((s) => s.categoria === cat)).map((cat) => {
                 const setores = der!.porSetor.filter((s) => s.categoria === cat);
-                const subtotal = setores.reduce((acc, s) => acc + s.mensalSugeridoCents, 0);
-                const maxGrupo = Math.max(1, ...setores.map((s) => s.mensalSugeridoCents));
+                const subtotal = setores.reduce((acc, s) => acc + orcadoRef(s), 0);
+                const maxGrupo = Math.max(1, ...setores.map((s) => orcadoRef(s)));
                 const meta = CATEGORIA_META[cat]!;
                 return (
                   <div key={cat}>
@@ -195,11 +321,38 @@ export default function OrcamentoPage() {
                             {s.nome ?? (s.codSetor !== null ? `Centro ${s.codSetor}` : 'Sem centro de custo')}
                           </span>
                           <div className="col-span-2 sm:col-span-1">
-                            <Barra valor={s.mensalSugeridoCents} max={maxGrupo} cor={meta.barra} />
+                            <Barra valor={orcadoRef(s)} max={maxGrupo} cor={meta.barra} />
                           </div>
-                          <span className="text-right text-sm font-medium tabular-nums" title={`Realizado ${der!.baseMeses}m: ${moeda(s.realizadoCents)} · ${s.mesesComGasto} meses com gasto`}>
-                            {moeda(s.mensalSugeridoCents)}<span className="text-gray-400">/mês</span>
-                          </span>
+                          <div className="text-right" title={`Realizado ${der!.baseMeses}m: ${moeda(s.realizadoCents)} · ${s.mesesComGasto} meses com gasto`}>
+                            {editando && s.codSetor !== null ? (
+                              <div className="flex items-center justify-end gap-1">
+                                <span className="text-[11px] text-gray-400">R$</span>
+                                <input
+                                  type="number"
+                                  value={rascunho[s.codSetor] ?? ''}
+                                  onChange={(e) => { const cod = s.codSetor!; setRascunho((r) => ({ ...r, [cod]: e.target.value })); }}
+                                  className="w-24 rounded border border-gray-200 bg-transparent px-1.5 py-0.5 text-right text-sm tabular-nums outline-none focus:border-pioneira-400 dark:border-gray-700"
+                                />
+                                <span className="text-[11px] text-gray-400">/mês</span>
+                              </div>
+                            ) : (
+                              <>
+                                <span className="text-sm font-medium tabular-nums">
+                                  {moeda(orcadoRef(s))}<span className="text-gray-400">/mês</span>
+                                  {der!.metaAdotada && s.metaMensalCents !== null && (
+                                    <span className="ml-1 text-[10px] font-normal text-emerald-600 dark:text-emerald-400">meta</span>
+                                  )}
+                                </span>
+                                {der!.mesComparado && (
+                                  <p className={`text-[11px] tabular-nums ${s.estourou ? 'font-semibold text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                                    {der!.mesComparadoLabel}: {moedaCurta(s.realizadoMesCents)}
+                                    {orcadoRef(s) > 0 && s.realizadoMesCents > 0 ? ` · ${s.variacaoPerc.toFixed(0)}%` : ''}
+                                    {s.estourou ? ' ⚠️' : ''}
+                                  </p>
+                                )}
+                              </>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -235,10 +388,12 @@ export default function OrcamentoPage() {
           <p className="mx-auto mt-1 max-w-md text-sm text-gray-500">
             {data.observacoes[0] ?? 'Clique em Sincronizar para importar o orçado legado (2018–2020) do Globus.'}
           </p>
-          <Button onClick={() => syncM.mutate()} disabled={syncM.isPending} className="mt-4">
-            {syncM.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            <span className="ml-2">Sincronizar agora</span>
-          </Button>
+          {podeSincronizar && (
+            <Button onClick={() => syncM.mutate()} disabled={syncM.isPending} className="mt-4">
+              {syncM.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              <span className="ml-2">Sincronizar agora</span>
+            </Button>
+          )}
         </Card>
       )}
 

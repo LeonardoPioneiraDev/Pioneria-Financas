@@ -25,8 +25,8 @@ export const workflowModule: FastifyPluginAsyncTypebox = async (fastify) => {
 
   // -------------------------------- INFERENCIA --------------------------------
   // Workflow derivado do estado do documento (sem WorkflowInstance manual).
-  // Endpoint preferido para UI ver "onde o documento esta" sem precisar avancar
-  // etapa clicando em botao.
+  // Endpoint preferido para UI ver "onde o documento está" sem precisar avançar
+  // etapa clicando em botão.
   fastify.get(
     '/inferir',
     {
@@ -35,7 +35,7 @@ export const workflowModule: FastifyPluginAsyncTypebox = async (fastify) => {
         tags: ['workflow'],
         summary: 'Inferir etapa atual do workflow a partir do estado do documento',
         description:
-          'Sistema deduz em que etapa o documento esta usando os campos vindos do Globus ' +
+          'Sistema deduz em que etapa o documento está usando os campos vindos do Globus ' +
           '(quitado, dataPagamento, pagamentoLiberado, status etc.). Retorna timeline completa ' +
           'com cada etapa marcada como passada | atual | pulada | futura. Suporta: conta_pagar, conta_receber.',
         querystring: WorkflowInferirQuerySchema,
@@ -157,7 +157,7 @@ export const workflowModule: FastifyPluginAsyncTypebox = async (fastify) => {
       preHandler: [fastify.authRequired],
       schema: {
         tags: ['workflow'],
-        summary: 'Busca workflow pelo documento (404 se nao existir)',
+        summary: 'Busca workflow pelo documento (404 se não existir)',
         params: Type.Object({
           tipo: Type.String(),
           id: Type.String(),
@@ -171,7 +171,7 @@ export const workflowModule: FastifyPluginAsyncTypebox = async (fastify) => {
     },
     async (req, reply) => {
       const timeline = await service.obterPorDocumento(req.params.tipo, req.params.id);
-      if (!timeline) return reply.notFound('Workflow nao encontrado para este documento');
+      if (!timeline) return reply.notFound('Workflow não encontrado para este documento');
       return timeline;
     },
   );
@@ -182,7 +182,7 @@ export const workflowModule: FastifyPluginAsyncTypebox = async (fastify) => {
       preHandler: [fastify.authRequired],
       schema: {
         tags: ['workflow'],
-        summary: 'Avanca para a proxima etapa',
+        summary: 'Avança para a próxima etapa',
         params: Type.Object({ id: Type.String({ format: 'uuid' }) }),
         body: WorkflowAvancarSchema,
         response: { 200: WorkflowInstanceResponseSchema },
@@ -199,7 +199,7 @@ export const workflowModule: FastifyPluginAsyncTypebox = async (fastify) => {
       preHandler: [fastify.authRequired],
       schema: {
         tags: ['workflow'],
-        summary: 'Volta uma etapa (ou para etapa especifica anterior)',
+        summary: 'Volta uma etapa (ou para etapa específica anterior)',
         params: Type.Object({ id: Type.String({ format: 'uuid' }) }),
         body: WorkflowVoltarSchema,
         response: { 200: WorkflowInstanceResponseSchema },
@@ -238,7 +238,7 @@ export const workflowModule: FastifyPluginAsyncTypebox = async (fastify) => {
       preHandler: [fastify.authRequired],
       schema: {
         tags: ['workflow'],
-        summary: 'Atribui o workflow a outro usuario',
+        summary: 'Atribui o workflow a outro usuário',
         params: Type.Object({ id: Type.String({ format: 'uuid' }) }),
         body: WorkflowAtribuirSchema,
         response: { 200: WorkflowInstanceResponseSchema },

@@ -1,7 +1,9 @@
 import type { FastifyInstance } from 'fastify';
+import { IsNull } from 'typeorm';
 import { GlobusFlpFuncStage } from '@/entities/globus-flp-func-stage.entity.js';
 import { GlobusFlpEventoStage } from '@/entities/globus-flp-evento-stage.entity.js';
 import { GlobusFlpFichaStage } from '@/entities/globus-flp-ficha-stage.entity.js';
+import { GRUPO_POR_CODEVENTO } from '@/shared/folha/eventos-pioneira.js';
 
 interface ETLResultado {
   funcionariosProcessados: number;
@@ -43,6 +45,12 @@ interface RawFicha {
  * Quando os códigos exatos da Pioneira forem conhecidos, podemos sobrepor por CODEVENTO.
  */
 function classificarGrupoEvento(codEvento: number, desc: string | null, tipo: string): string {
+  // Override por CODEVENTO — códigos exatos da Pioneira (fonte: eventos-pioneira.ts).
+  // Tem prioridade sobre a heurística de texto: corrige casos que a regex erra
+  // (ex.: "MENS. SINDICATO" não casa /SIND\b/) e amarra encargos aos códigos reais.
+  const override = GRUPO_POR_CODEVENTO[codEvento];
+  if (override) return override;
+
   // Bases conhecidas (TIPOEVEN='B') usadas pela consulta de contra-cheque.
   if (tipo === 'B') {
     if ([300, 315, 318, 319, 322, 330, 500].includes(codEvento)) return 'base';
@@ -56,7 +64,7 @@ function classificarGrupoEvento(codEvento: number, desc: string | null, tipo: st
   if (/IRRF|IMP\.?\s*RENDA|IRPF/i.test(d)) return 'irrf';
   if (/VALE.?TRANSP|\bVT\b|PASSE LIVRE|BILHETE/i.test(d)) return 'vt';
   if (/VALE.?ALIM|\bVA\b|VALE.?REFEI|\bVR\b|SODEXO|ALELO|TICKET/i.test(d)) return 'va';
-  if (/SINDICAL|SIND\b|CONFEDERA/i.test(d)) return 'sindical';
+  if (/SINDIC|SIND\.|CONFEDERA/i.test(d)) return 'sindical';
   if (/PENSÃO|PENSAO|ALIMENT[ÍI]CIA|JUDICIAL/i.test(d)) return 'pensao';
   if (/ADIANT|VALE\b/i.test(d)) return 'adiantamento';
   if (/F[ÉE]RIAS/i.test(d)) return 'ferias';
@@ -111,7 +119,7 @@ export function buildFolhaFlpEtl(fastify: FastifyInstance) {
 
       // Batch insert via VALUES — 8k+ funcionários em 1-by-1 era inviável.
       const FUNC_BATCH = 500;
-      const funcsPendentes = await funcStageRepo.find({ where: { processadoEm: null as unknown as Date }, take: 20_000 });
+      const funcsPendentes = await funcStageRepo.find({ where: { processadoEm: IsNull() }, take: 20_000 });
       log.info({ pendentes: funcsPendentes.length }, '[etl:folha_flp] processando funcionários (batch)…');
 
       let funcsOk = 0;
@@ -184,17 +192,24 @@ export function buildFolhaFlpEtl(fastify: FastifyInstance) {
       }
 
       // ============ EVENTOS ============
-      const evsPendentes = await eventoStageRepo.find({ where: { processadoEm: null as unknown as Date } });
+      const evsPendentes = await eventoStageRepo.find({ where: { processadoEm: IsNull() } });
       log.info({ pendentes: evsPendentes.length }, '[etl:folha_flp] processando eventos…');
 
       let evsOk = 0;
       for (const stage of evsPendentes) {
         const raw = stage.rawPayload as unknown as RawEvento;
         const tipo = (raw.TIPO ?? 'P').trim().toUpperCase();
+        // TIPOEVEN 'A' (referências/benefícios: 700 SALÁRIO BASE, 301 CONSIGNADO,
+        // 900 TICKET, 901 CESTA…) e 'C' (informativos: 15511 DESC SIMPL, 403
+        // ATESTADO…) NÃO são renda nem desconto em dinheiro. ANTES viravam 'P' e
+        // INFLAVAM os proventos (dobravam o salário, contavam benefício como
+        // renda, jogavam desconto em proventos). Vão pra 'B' (informativo/base),
+        // fora dos totais de proventos/descontos. Validado no catálogo real
+        // FLP_EVENTOS (A=9, C=6; ver sql-exploracao/2026-07-07-folha-eventos-classificacao).
         if (!['P', 'D', 'B'].includes(tipo)) {
-          log.warn({ codEvento: raw.COD_EVENTO, tipo: raw.TIPO }, '[etl:folha_flp] tipo de evento desconhecido — usando P');
+          log.info({ codEvento: raw.COD_EVENTO, tipo: raw.TIPO }, `[etl:folha_flp] evento informativo (tipo ${tipo}) → base (fora dos totais)`);
         }
-        const tipoNormalizado = ['P', 'D', 'B'].includes(tipo) ? tipo : 'P';
+        const tipoNormalizado = ['P', 'D', 'B'].includes(tipo) ? tipo : 'B';
         const grupo = classificarGrupoEvento(raw.COD_EVENTO, raw.DESCRICAO, tipoNormalizado);
         try {
           await eventoStageRepo.query(
@@ -221,13 +236,16 @@ export function buildFolhaFlpEtl(fastify: FastifyInstance) {
       let totalChunk: number;
       do {
         const fichasPendentes = await fichaStageRepo.find({
-          where: { processadoEm: null as unknown as Date },
+          where: { processadoEm: IsNull() },
+          order: { id: 'ASC' },
           take: 2000,
         });
         totalChunk = fichasPendentes.length;
         if (totalChunk === 0) break;
 
         log.info({ chunk: totalChunk }, '[etl:folha_flp] processando ficha (chunk)…');
+
+        let marcadosNoChunk = 0;
 
         for (let i = 0; i < fichasPendentes.length; i += BATCH_SIZE) {
           const lote = fichasPendentes.slice(i, i + BATCH_SIZE);
@@ -280,20 +298,56 @@ export function buildFolhaFlpEtl(fastify: FastifyInstance) {
             // Marca todos do lote como processados (mesmo os que não viraram canonical -
             // ex.: funcionário ainda não sincronizado - vão ficar com origem_id_externo
             // orfão pra debug posterior).
-            await fichaStageRepo
-              .createQueryBuilder()
-              .update()
-              .set({ processadoEm: new Date() })
-              .whereInIds(lote.map((s) => s.id))
-              .execute();
+            //
+            // Marcação pela CHAVE NATURAL (índice UNIQUE), NÃO por id.
+            // Histórico: createQueryBuilder().whereInIds() e depois
+            // `id = ANY($1::uuid[])` marcavam quase nada (2 de 500) — os ids do
+            // .find() não casavam no UPDATE. Resultado: processado_em ficava NULL,
+            // o pending nunca encolhia e o do...while girava aos milhões.
+            // A chave (cod_int_func, competencia, cod_evento, tipo_folha) é o
+            // índice UNIQUE da tabela → o UPDATE atinge exatamente estas linhas.
+            const chaveSql: string[] = [];
+            const chaveParams: unknown[] = [];
+            let kp = 1;
+            for (const stage of lote) {
+              const raw = stage.rawPayload as unknown as RawFicha;
+              chaveSql.push(`($${kp}::varchar, $${kp + 1}::date, $${kp + 2}::int, $${kp + 3}::int)`);
+              chaveParams.push(String(raw.COD_INT_FUNC), stage.competencia, raw.COD_EVENTO, raw.TIPO_FOLHA);
+              kp += 4;
+            }
+            const marcados: Array<{ id: string }> = await fichaStageRepo.query(
+              `UPDATE integration.globus_flp_ficha_stage s
+                  SET processado_em = NOW()
+                 FROM (VALUES ${chaveSql.join(',')})
+                      AS k(cod_int_func, competencia, cod_evento, tipo_folha)
+                WHERE s.cod_int_func = k.cod_int_func
+                  AND s.competencia  = k.competencia
+                  AND s.cod_evento   = k.cod_evento
+                  AND s.tipo_folha   = k.tipo_folha
+                  AND s.processado_em IS NULL
+                RETURNING s.id`,
+              chaveParams,
+            );
+            marcadosNoChunk += marcados.length;
 
             log.info(
-              { lote: `${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(fichasPendentes.length / BATCH_SIZE)}`, gravados: inseridos, fichasOk },
+              { lote: `${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(fichasPendentes.length / BATCH_SIZE)}`, gravados: inseridos, marcados: marcados.length, fichasOk },
               `[etl:folha_flp] ficha canonical lote OK`,
             );
           } catch (err) {
             log.warn({ err, loteSize: lote.length, loteInicio: i }, '[etl:folha_flp] falha em lote de ficha');
           }
+        }
+
+        // Trava anti-loop: se o chunk inteiro não marcou nenhuma linha como
+        // processada, o pending nunca vai encolher — aborta em vez de girar
+        // pra sempre reprocessando as mesmas fichas.
+        if (marcadosNoChunk === 0) {
+          log.error(
+            { chunk: totalChunk, fichasOk },
+            '[etl:folha_flp] chunk de ficha não avançou (0 marcados) — abortando para evitar loop infinito',
+          );
+          break;
         }
       } while (totalChunk === 2000);
 

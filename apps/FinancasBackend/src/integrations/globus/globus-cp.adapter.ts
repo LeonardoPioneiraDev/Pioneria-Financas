@@ -10,6 +10,11 @@ export interface SyncCpParams {
   dtInicio: Date;
   dtFimExclusivo: Date;
   usuarioId?: string | null;
+  /**
+   * Eixo de data da janela. 'vencimento' (default) filtra por VENCIMENTOCPG;
+   * 'pagamento' por PAGAMENTOCPG (traz o que foi PAGO no intervalo). Ver SFN-47.
+   */
+  modo?: 'vencimento' | 'pagamento';
 }
 
 export interface RawCpRow {
@@ -49,8 +54,16 @@ export interface RawCpRow {
   BANCO_PAG_NOME: string | null;
   COD_MOVTO_BCO: number | string | null;
   PAGAMENTO_DOC: string | null;
+  // Remessa enviada ao banco (pagamento eletronico). Borderô/cheque vem null.
+  NRO_REMESSA_PE: string | null;
+  DT_REMESSA_PE: Date | null;
   MODALIDADE_PE: string | null;
   TIPO_PAGTO: string | null;
+  // Substituicao (CPGDOCTO.CODDOCTOCPGSUBST): ponteiro do antigo -> sucessor. SFN-48.
+  COD_DOCTO_CPG_SUBST: number | string | null;
+  // Confirmacao do pagamento eletronico (AUTELETRONICA / STATUSPE).
+  AUT_ELETRONICA: string | null;
+  STATUS_PE: string | null;
   VLR_INSS: number | null;
   VLR_IRRF: number | null;
   VLR_PIS: number | null;
@@ -77,6 +90,10 @@ export interface RawCpRow {
   SETOR_NOME: string | null;
   /** Qtd de unidades (CODCUSTOFIN) distintas no titulo — >1 = rateado. */
   QTD_SETORES: number | null;
+  /** Quebra do rateio: "codigo|nome|centavos;codigo|nome|centavos;..." (maior valor 1o). */
+  RATEIO_SETORES: string | null;
+  /** Quebra por conta contabil: "classificador|nome|centavos;..." (maior valor 1o). */
+  RATEIO_CONTAS: string | null;
   VLR_TOTAL_ITENS: number | null;
 }
 
@@ -103,9 +120,116 @@ export function buildGlobusCpAdapter(fastify: FastifyInstance) {
   const stageRepo = fastify.db.getRepository(GlobusCpStage);
   const jobRepo = fastify.db.getRepository(SyncJob);
 
+  /**
+   * Grava UMA linha do Globus no stage (upsert por hash). Extraído para ser
+   * reusado pela sincronização por janela E pela reconciliação por chave.
+   * Retorna 'gravado' | 'inalterado'; lança em erro (o caller conta/loga).
+   */
+  async function gravarLinha(linha: RawCpRow, jobId: string): Promise<'gravado' | 'inalterado'> {
+    const hash = sha256Json(linha);
+    const cancelado = String(linha.STATUS_DOCTO ?? '').toUpperCase() === 'C';
+    const motivo = cancelado ? 'cancelado_no_globus' : null;
+    const resultado = await stageRepo.query<Array<{ inalterado: boolean }>>(
+      `INSERT INTO integration.globus_cp_stage
+         (cod_docto_cpg, codigo_empresa, sync_job_id, raw_payload, hash_payload,
+          excluido_em, excluido_motivo)
+       VALUES ($1, $2, $3, $4::jsonb, $5,
+               CASE WHEN $6::varchar IS NULL THEN NULL ELSE NOW() END, $6)
+       ON CONFLICT (codigo_empresa, cod_docto_cpg)
+       DO UPDATE SET
+         sync_job_id  = EXCLUDED.sync_job_id,
+         recebido_em  = NOW(),
+         raw_payload  = CASE WHEN integration.globus_cp_stage.hash_payload IS DISTINCT FROM EXCLUDED.hash_payload
+                             THEN EXCLUDED.raw_payload ELSE integration.globus_cp_stage.raw_payload END,
+         hash_payload = EXCLUDED.hash_payload,
+         processado_em = CASE WHEN integration.globus_cp_stage.hash_payload IS DISTINCT FROM EXCLUDED.hash_payload
+                              THEN NULL ELSE integration.globus_cp_stage.processado_em END,
+         excluido_em = CASE
+           WHEN $6::varchar IS NULL THEN NULL
+           WHEN integration.globus_cp_stage.excluido_em IS NULL THEN NOW()
+           ELSE integration.globus_cp_stage.excluido_em END,
+         excluido_motivo = $6
+       RETURNING (xmax <> 0 AND integration.globus_cp_stage.hash_payload = $5) AS inalterado`,
+      [String(linha.COD_DOCTO_CPG), linha.CODIGO_EMPRESA, jobId, JSON.stringify(linha), hash, motivo],
+    );
+    return resultado[0]?.inalterado ? 'inalterado' : 'gravado';
+  }
+
   return {
+    /**
+     * RECONCILIAÇÃO por chave — reconsulta títulos que JÁ temos, por
+     * CODDOCTOCPG, em vez de por janela de data.
+     *
+     * Existe porque o sync por janela de VENCIMENTO tem um ponto cego: se um
+     * título é prorrogado (ou cancelado, ou pago) e sai da janela consultada, a
+     * nossa cópia congela com o dado antigo. Caso real: título 1000810
+     * prorrogado de 23/07 para 30/07 — sumiu da janela de 23/07 e ficou preso.
+     *
+     * Consulta em lotes (Oracle limita IN a 1000). Grava no MESMO stage; o ETL
+     * reprocessa o que mudou.
+     */
+    async reconciliarPorCodigos(codigos: number[], empresa: number): Promise<SyncCpResult> {
+      const inicio = Date.now();
+      const job = jobRepo.create({
+        sistema: 'globus', recurso: 'contas_pagar', status: 'rodando',
+        parametros: { empresa, modo: 'reconciliacao', totalCodigos: codigos.length },
+      });
+      await jobRepo.save(job);
+      const jobLog = fastify.log.child({ jobId: job.id, sync: 'globus:cp:reconciliacao' });
+
+      try {
+        if (!fastify.oracle?.isAvailable?.()) throw new Error('Conexao com Oracle (Globus) indisponivel');
+        if (codigos.length === 0) {
+          job.status = 'ok'; job.terminadoEm = new Date(); await jobRepo.save(job);
+          return { jobId: job.id, registrosLidos: 0, registrosGravados: 0, registrosInalterados: 0, registrosCancelados: 0, registrosComErro: 0, duracaoMs: Date.now() - inicio, status: 'ok' };
+        }
+
+        const LOTE = 500; // folga sob o limite de 1000 do Oracle IN
+        let lidos = 0, gravados = 0, inalterados = 0, cancelados = 0, comErro = 0;
+
+        for (let i = 0; i < codigos.length; i += LOTE) {
+          const fatia = codigos.slice(i, i + LOTE);
+          // Lista validada como inteiros -> seguro interpolar no placeholder.
+          const inList = fatia.map((c) => Math.trunc(c)).join(', ');
+          const sql = GLOBUS_QUERIES.contasAPagarPorCodigos.replace('__CODIGOS__', inList);
+          const result = await fastify.oracle.execute<RawCpRow>(
+            sql, { empresa }, { queryName: 'contasAPagarPorCodigos', syncJobId: job.id },
+          );
+          const linhas = result.rows ?? [];
+          lidos += linhas.length;
+          for (const linha of linhas) {
+            try {
+              if (String(linha.STATUS_DOCTO ?? '').toUpperCase() === 'C') cancelados += 1;
+              const r = await gravarLinha(linha, job.id);
+              if (r === 'inalterado') inalterados += 1; else gravados += 1;
+            } catch (err) {
+              comErro += 1;
+              jobLog.warn({ err, codDoctoCpg: linha.COD_DOCTO_CPG }, '[reconciliacao] falha ao gravar');
+            }
+          }
+        }
+
+        const status: SyncCpResult['status'] = comErro === 0 ? 'ok' : comErro < lidos ? 'parcial' : 'erro';
+        job.status = status; job.terminadoEm = new Date();
+        job.registrosLidos = lidos; job.registrosGravados = gravados; job.registrosComErro = comErro;
+        await jobRepo.save(job);
+        jobLog.info({ status, pedidos: codigos.length, lidos, gravados, inalterados, cancelados, comErro },
+          `[reconciliacao] concluida (${gravados} atualizados de ${lidos} lidos; ${codigos.length - lidos} sumiram do Globus)`);
+
+        return { jobId: job.id, registrosLidos: lidos, registrosGravados: gravados, registrosInalterados: inalterados, registrosCancelados: cancelados, registrosComErro: comErro, duracaoMs: Date.now() - inicio, status };
+      } catch (err) {
+        const message = (err as Error).message;
+        jobLog.error({ err }, '[reconciliacao] FALHA');
+        job.status = 'erro'; job.terminadoEm = new Date(); job.erroMensagem = message;
+        await jobRepo.save(job);
+        return { jobId: job.id, registrosLidos: 0, registrosGravados: 0, registrosInalterados: 0, registrosCancelados: 0, registrosComErro: 0, duracaoMs: Date.now() - inicio, status: 'erro', mensagem: message };
+      }
+    },
+
     async sincronizar(params: SyncCpParams): Promise<SyncCpResult> {
       const inicio = Date.now();
+
+      const porPagamento = params.modo === 'pagamento';
 
       const log = fastify.log.child({
         sync: { sistema: 'globus', recurso: 'contas_pagar' },
@@ -113,6 +237,7 @@ export function buildGlobusCpAdapter(fastify: FastifyInstance) {
           empresa: params.empresa,
           dt_ini: params.dtInicio.toISOString().slice(0, 10),
           dt_fim_excl: params.dtFimExclusivo.toISOString().slice(0, 10),
+          modo: porPagamento ? 'pagamento' : 'vencimento',
         },
       });
 
@@ -127,6 +252,7 @@ export function buildGlobusCpAdapter(fastify: FastifyInstance) {
           empresa: params.empresa,
           dtInicio: params.dtInicio.toISOString(),
           dtFimExclusivo: params.dtFimExclusivo.toISOString(),
+          modo: porPagamento ? 'pagamento' : 'vencimento',
         },
         usuarioId: params.usuarioId ?? null,
       });
@@ -138,16 +264,21 @@ export function buildGlobusCpAdapter(fastify: FastifyInstance) {
           throw new Error('Conexao com Oracle (Globus) indisponivel');
         }
 
-        jobLog.info('[sync:globus:cp] executando query no Globus...');
+        // Janela por vencimento (default) ou por pagamento (auditoria de caixa).
+        // A query muda apenas a coluna do WHERE/ORDER BY; binds sao os mesmos.
+        const query = porPagamento ? GLOBUS_QUERIES.contasAPagarPorPagamento : GLOBUS_QUERIES.contasAPagar;
+        const queryName = porPagamento ? 'contasAPagarPorPagamento' : 'contasAPagar';
+
+        jobLog.info({ modo: porPagamento ? 'pagamento' : 'vencimento' }, '[sync:globus:cp] executando query no Globus...');
         const queryStart = Date.now();
         const result = await fastify.oracle.execute<RawCpRow>(
-          GLOBUS_QUERIES.contasAPagar,
+          query,
           {
             empresa: params.empresa,
             dt_ini: params.dtInicio,
             dt_fim_excl: params.dtFimExclusivo,
           },
-          { queryName: 'contasAPagar', syncJobId: job.id },
+          { queryName, syncJobId: job.id },
         );
         const queryMs = Date.now() - queryStart;
 

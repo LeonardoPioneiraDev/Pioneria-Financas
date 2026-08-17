@@ -1,19 +1,19 @@
 /**
- * Catalogo central do status de cada modulo do sistema financeiro.
+ * Catálogo central do status de cada módulo do sistema financeiro.
  *
  * Usado em:
  *   - Sidebar (badge colorido ao lado de cada item)
- *   - Pagina placeholder (mostra lista de "o que vai ter")
- *   - Banner nas paginas prontas (apontando o que ainda nao foi implementado)
+ *   - Página placeholder (mostra lista de "o que vai ter")
+ *   - Banner nas páginas prontas (apontando o que ainda não foi implementado)
  *
- * A regra "estado e codigo, nao memoria" vale aqui — quando uma feature ficar
+ * A regra "estado é código, não memória" vale aqui — quando uma feature ficar
  * pronta, atualizar este arquivo. Assim a UI mostra a verdade automaticamente.
  */
 
 export type ModuloStatus =
-  | 'pronto'        // todas funcionalidades principais estao funcionando
+  | 'pronto'        // todas funcionalidades principais estão funcionando
   | 'parcial'       // backbone funcionando, mas faltam features importantes
-  | 'planejado';    // ainda nao construido (placeholder)
+  | 'planejado';    // ainda não construído (placeholder)
 
 export interface ModuloInfo {
   href: string;
@@ -21,21 +21,27 @@ export interface ModuloInfo {
   status: ModuloStatus;
   /** Fase do roadmap (ver Leia/06_ROADMAP.md). */
   fase: string;
-  /** Descricao 1 linha sobre o que o modulo faz / vai fazer. */
+  /** Descrição 1 linha sobre o que o módulo faz / vai fazer. */
   descricao: string;
-  /** Lista bullet de funcionalidades — checada quando implementada. */
-  features: ReadonlyArray<{ ok: boolean; texto: string }>;
-  /** Fontes de dados que alimentam o modulo (Globus, BCB, horarios, manual…). */
+  /**
+   * Lista bullet de funcionalidades — checada quando implementada.
+   * `desativado: true` = não é trabalho pendente, foi desligado por decisão
+   * (a pedido, sem uso etc.) e preservado/reativável — o banner mostra numa
+   * categoria separada de "ainda em desenvolvimento", pra não parecer que o
+   * módulo está incompleto.
+   */
+  features: ReadonlyArray<{ ok: boolean; texto: string; desativado?: boolean }>;
+  /** Fontes de dados que alimentam o módulo (Globus, BCB, horários, manual…). */
   fontesDados?: ReadonlyArray<string>;
   /**
-   * O que a exploracao dos dados JA revelou — fatos OBSERVADOS (nao interpretacao).
-   * Serve pra separar o que sabemos do que ainda e pergunta em aberto. Mostrado
-   * como card proprio no placeholder. Regra do projeto: nao concluir em silencio.
+   * O que a exploração dos dados JÁ revelou — fatos OBSERVADOS (não interpretação).
+   * Serve pra separar o que sabemos do que ainda é pergunta em aberto. Mostrado
+   * como card próprio no placeholder. Regra do projeto: não concluir em silêncio.
    */
   achados?: ReadonlyArray<string>;
   /** Perguntas chave que o financeiro precisa responder pra priorizarmos. */
   perguntasFinanceiro?: ReadonlyArray<string>;
-  /** Estimativa rapida de esforco (apenas referencia). */
+  /** Estimativa rápida de esforço (apenas referência). */
   estimativaSemanas?: number;
 }
 
@@ -84,7 +90,10 @@ export const MODULOS: Record<string, ModuloInfo> = {
       { ok: true, texto: 'Classificação por origem: GDF · Clientes · Outras (heurística — em validação)' },
       { ok: true, texto: 'Top fontes de "Outras" pelo histórico bancário' },
       { ok: true, texto: 'Atualização do extrato do Globus sob demanda' },
-      { ok: false, texto: 'Visão de cobrança (títulos a receber CRCDOCTO) — preservada e desativada (reativável)' },
+      // Desativada a pedido (30/07/2026, sem uso) — não é pendência do módulo,
+      // por isso fora da lista (senão o banner conta como "incompleto"). Código
+      // preservado e reativável — ver comentário em contas-receber/page.tsx.
+      // { ok: false, desativado: true, texto: 'Visão de cobrança (títulos a receber CRCDOCTO) e reembolsos' },
     ],
     fontesDados: ['Globus BCOMOVTO', 'Conciliação bancária', 'Globus BCOCONTA'],
   },
@@ -117,20 +126,29 @@ export const MODULOS: Record<string, ModuloInfo> = {
     nome: 'Conciliação Bancária',
     status: 'pronto',
     fase: 'Em produção',
-    descricao: 'Espelho da conciliação do Globus: cada lançamento do extrato (BCOMOVTO) e o título que o Globus já vinculou (cod_movto_bco → CP). O sistema só mostra, não faz matching.',
+    descricao: 'Espelho da conciliação do Globus (o que ele já ligou via cod_movto_bco → CP) + identificação manual dos que faltam: o operador liga o valor do banco à conta a pagar/receber certa. O sistema não inventa pares — mostra o do Globus e registra a decisão humana.',
     features: [
       { ok: true, texto: 'Lançamentos do banco (BCOMOVTO) com flag conciliado do Globus' },
       { ok: true, texto: 'Título a pagar vinculado pelo Globus (cod_movto_bco → CPGDOCTO)' },
       { ok: true, texto: 'Abas Identificados / Falta identificar + filtro por conta e busca' },
-      { ok: true, texto: 'Contas bancárias com saldo e agregados' },
-      { ok: false, texto: 'Vínculo de crédito → Conta a Receber (depende sincronizar CRCDOCTO.CODMOVTOBCO)' },
-      { ok: false, texto: 'Importação CNAB de retorno' },
-      { ok: false, texto: 'Motor de matching próprio (preservado/desativado — reativável)' },
+      { ok: true, texto: 'Identificação manual dos pendentes — liga o valor a uma conta a pagar OU a receber (candidatos por valor ±10% e data ±30d, ou busca por fornecedor/documento); decisão humana confirmada e auditável' },
+      { ok: true, texto: 'Contas bancárias com saldo (âncora do tesoureiro), agregados de movimentos e explicação de cada número' },
+      // FORA DE ESCOPO / não priorizado (jul/2026). Não exibidos como pendência num módulo Em produção.
+      // - Vínculo AUTOMÁTICO de crédito → Conta a Receber: depende sincronizar CRCDOCTO.CODMOVTOBCO
+      //   (hoje não vem). A identificação MANUAL já cobre o caso (liga crédito a um CR na mão).
+      // - Importação CNAB de retorno: arquivo do banco, feito fora do sistema.
+      // - Auto-match/borderô (subset-sum) próprio: preservado e DESLIGADO de propósito
+      //   (_components/ConciliacaoMatchingView) — sugestão automática pode gerar par falso; a
+      //   política é só o espelho do Globus + a ligação manual humana. Reativável por import.
+      // { ok: false, texto: 'Vínculo AUTOMÁTICO de crédito → Conta a Receber (depende sincronizar CRCDOCTO.CODMOVTOBCO; manual já cobre)' },
+      // { ok: false, texto: 'Importação CNAB de retorno (arquivo do banco, feito fora)' },
+      // { ok: false, texto: 'Auto-match/borderô próprio (preservado/desligado de propósito — reativável)' },
     ],
-    fontesDados: ['Globus BCOMOVTO', 'Globus BCOCONTA', 'finance.contas_pagar'],
-    perguntasFinanceiro: [
-      'A conciliação do Globus é confiável o bastante pra ser a fonte única aqui?',
-      'Os créditos (recebimentos) também têm vínculo de movimento no Globus (CRCDOCTO)?',
+    fontesDados: ['Globus BCOMOVTO', 'Globus BCOCONTA', 'finance.contas_pagar', 'finance.contas_receber', 'finance.conciliacoes'],
+    achados: [
+      'Decisão (jul/2026): o módulo é o espelho do Globus + identificação manual dos pendentes. O que o Globus concilia, mostramos; o que falta, o operador liga na mão (auditável).',
+      'Vínculo automático de crédito→CR e importação CNAB dependem de dado/arquivo externo que hoje não entra — a ligação manual já resolve o caso na prática, então saíram da fila de desenvolvimento.',
+      'O motor de auto-match/borderô próprio existe mas fica desligado de propósito: sugerir par automaticamente arrisca falso-positivo; preferimos a decisão humana. Reativável se o financeiro pedir.',
     ],
     estimativaSemanas: 0,
   },
@@ -208,7 +226,7 @@ export const MODULOS: Record<string, ModuloInfo> = {
       { ok: true, texto: 'Alerta de gap (delta acumulado fica negativo)' },
       { ok: true, texto: 'Inadimplência histórica calculada dos últimos 6 meses' },
       { ok: true, texto: 'Listagem detalhada CR + CP (abas "A pagar" / "A receber")' },
-      { ok: false, texto: 'Cenários (otimista/realista/pessimista) — sprint 04 candidata' },
+      { ok: true, texto: 'Cenários otimista/realista/pessimista — mesmo motor, premissas derivadas da variação mensal real (inadimplência + repasse GDF)' },
     ],
     fontesDados: ['Globus CRCDOCTO', 'Globus CPGDOCTO'],
     perguntasFinanceiro: [
@@ -221,17 +239,17 @@ export const MODULOS: Record<string, ModuloInfo> = {
   '/orcamento': {
     href: '/orcamento',
     nome: 'Orçamento',
-    status: 'parcial',
-    fase: 'Fase 4 (Planejamento)',
-    descricao: 'Orçamento com acompanhamento de realizado vs planejado. Orçado sugerido (base técnica projetada do realizado) e baseline histórico do Globus já no ar; o orçado OFICIAL e a comparação dependem do financeiro validar o eixo.',
+    status: 'pronto',
+    fase: 'Em produção',
+    descricao: 'Orçado por centro de custo derivado do realizado (base técnica), adotável e ajustável pelo financeiro como meta, com comparativo mensal, estouro e export. Baseline histórico do Globus como referência.',
     features: [
       { ok: true, texto: 'Orçado sugerido (base técnica) — média mensal do realizado por setor nos últimos 12 meses (Contas a Pagar), estado projetado, para o financeiro ajustar' },
       { ok: true, texto: 'Baseline histórico do Globus (CPGORCPREVISOES, 2018–2020) — orçado por ano e centro de custo, como referência e isca pro financeiro' },
-      { ok: false, texto: 'Cadastro / importação / aceite do orçado OFICIAL (CSV, tela ou aceitar a base técnica) — ⏳ aguardando eixo e formato do financeiro' },
-      { ok: false, texto: 'Comparativo realizado vs orçado mensal (realizado já disponível no Contas a Pagar)' },
-      { ok: false, texto: 'Sinalização de estouro (>110%)' },
-      { ok: false, texto: 'Workflow de aprovação de revisão' },
-      { ok: false, texto: 'Exportação para diretoria' },
+      { ok: true, texto: 'Comparativo realizado × orçado sugerido — gasto do último mês completo por setor vs a média (base técnica), tudo do Contas a Pagar' },
+      { ok: true, texto: 'Sinalização de estouro (>110% da média do próprio setor no mês)' },
+      { ok: true, texto: 'Adotar/ajustar a base técnica como orçado de referência (editável por setor + fator global) — o comparativo passa a usar a meta adotada' },
+      { ok: true, texto: 'Exportação (Excel) do comparativo orçado × realizado por setor' },
+      { ok: false, texto: 'Workflow de aprovação de revisão — fora de escopo: governança de orçamento que a Pioneira não usa (não orça formalmente); reabrir se criarem o processo' },
     ],
     fontesDados: [
       'finance.contas_pagar (realizado por centro de custo — pronto)',
@@ -256,81 +274,78 @@ export const MODULOS: Record<string, ModuloInfo> = {
   '/dre': {
     href: '/dre',
     nome: 'DRE',
-    status: 'planejado',
-    fase: 'Fase 4 (Planejamento)',
-    descricao: 'Demonstração de Resultado do Exercício, contábil e gerencial. O dado de base (razão contábil do Globus) já está no sistema — módulo tecnicamente viável; falta definir com o financeiro o desenho das linhas e a visão gerencial.',
+    status: 'pronto',
+    fase: 'Em produção',
+    descricao: 'Demonstração de Resultado do Exercício contábil, direto do razão do Globus (CTBSALDO, plano 1). O sistema espelha o razão — não recalcula. Com reconciliação gerencial (indicativa) do repasse do GDF.',
     features: [
-      { ok: false, texto: 'DRE contábil mensal (do razão contábil do Globus — dado disponível)' },
-      { ok: false, texto: 'DRE gerencial (visão de resultado operacional)' },
-      { ok: false, texto: 'Comparativo mensal e YTD' },
-      { ok: false, texto: 'Drill-down de cada linha até o título/lançamento' },
-      { ok: false, texto: 'Exportação Excel/PDF' },
-      { ok: false, texto: 'Visão por garagem (centro de custo)' },
+      { ok: true, texto: 'DRE contábil mensal — linhas montadas pela hierarquia do razão (receita, custos, resultado operacional e líquido), organizada por seções' },
+      { ok: true, texto: 'Comparativo com o mês anterior (Δ por linha) + análise vertical (% da receita líquida)' },
+      { ok: true, texto: 'Drill-down: clique numa linha e veja as contas do razão que a compõem (débito/crédito)' },
+      { ok: true, texto: 'Acumulado no ano (YTD, toggle Mês/YTD) + gráfico de evolução do resultado (12 meses)' },
+      { ok: true, texto: 'Visão gerencial (indicativa): reconcilia o resultado operacional com o repasse do GDF recebido no extrato' },
+      { ok: true, texto: 'Exportação para Excel (.xlsx) da DRE da competência' },
+      { ok: true, texto: 'Transparência: "Fontes e método" + aviso de que a receita operacional é só bilhetagem (repasse GDF não entra nesse plano)' },
+      // FORA DE ESCOPO (decisão jul/2026): DRE por garagem/centro de custo não é
+      // derivável do razão — as contas de resultado (classe 3/4) NÃO carregam centro
+      // de custo (mesmo caso do CODSETOR morto na Depreciação). Só sairia por rateio
+      // arbitrário ou reconstrução parcial do Contas a Pagar (não fecha com a DRE).
+      // Reabrir se houver decisão de método com o financeiro.
+      // { ok: false, texto: 'Visão por garagem (centro de custo) — fora de escopo: razão de resultado sem centro de custo' },
     ],
     fontesDados: [
-      'Globus CTBSALDO (razão — saldo mensal por conta, já sincronizado na Depreciação)',
-      'Globus CTBCDDRE + CTBITDRE (estrutura da DRE — a confirmar se está preenchida)',
-      'Globus CTBLANCA + CTBITLNC (lançamentos, para o drill-down)',
-      'finance.contas_pagar (realizado por centro de custo — pronto)',
+      'Globus CTBSALDO (razão — saldo mensal por conta, plano 1, contas de resultado classe 3/4)',
+      'finance.banco_movto (repasse GDF do extrato — reconciliação gerencial)',
     ],
     achados: [
-      'O razão contábil do Globus (CTBSALDO/CTBLANCA/CTBITLNC) está populado e já é lido pelo sistema — usamos ele no módulo Depreciação.',
-      'Uma DRE contábil é calculável hoje: basta agrupar as contas de resultado (classe 3 = despesa, 4 = receita) por linha e somar o saldo mensal.',
-      'O Globus tem tabelas de estrutura de DRE (CTBCDDRE/CTBITDRE) que, se preenchidas, dão o desenho oficial das linhas — a confirmar se a Pioneira as usa.',
-      'O módulo Depreciação já sincroniza o CTBSALDO (subconjunto); a DRE estende o mesmo pipeline para as contas de resultado. Reuso alto.',
+      'CONSTRUÍDO (jul/2026): DRE contábil mensal do CTBSALDO (plano 1) + comparativo mês anterior + análise vertical + YTD + gráfico + drill-down por linha + export xlsx + reconciliação gerencial do repasse GDF.',
+      'Regra crítica: o CTBSALDO guarda as contas SINTÉTICAS junto das folhas e elas TRIPLICAM o valor (nível-3 + nível-4 + folha) — a DRE soma SÓ as folhas (analíticas).',
+      'A estrutura de DRE do Globus (CTBCDDRE/CTBITDRE) existe mas está VAZIA — inutilizável; as linhas são montadas pela hierarquia do classificador.',
+      'A receita operacional contábil é só a bilhetagem (VT/PLE/PNE, ~R$39M/mês); o repasse do GDF não entra como receita nesse plano (resultado operacional contábil negativo). A visão gerencial soma o repasse do extrato como INDICATIVO — bilhetagem e repasse-caixa são lentes diferentes, não um número oficial.',
+      'DRE por garagem fica FORA de escopo: o razão de resultado não carrega centro de custo (só sairia por rateio arbitrário ou reconstrução parcial do Contas a Pagar).',
     ],
-    perguntasFinanceiro: [
-      'A estrutura de DRE atual do Globus atende, ou vocês montam a DRE por fora (planilha/contadora)?',
-      'Quem é o público — diretoria, conselho, acionista, contadora externa? (define detalhe e formato do export)',
-      'Precisa de visão gerencial diferente da contábil? Se sim, quais reagrupamentos (ex.: separar receita técnica de repasse GDF, custo por km)?',
-    ],
-    estimativaSemanas: 4,
   },
 
   '/painel-cfo': {
     href: '/painel-cfo',
     nome: 'Painel CFO',
-    status: 'planejado',
-    fase: 'Fase 5 (Executivo)',
-    descricao: 'Dashboard executivo com KPIs estratégicos e indicadores de saúde financeira.',
+    status: 'pronto',
+    fase: 'Em produção',
+    descricao: 'Visão executiva consolidada dos módulos prontos — caixa, resultado, folha e GDF num só lugar, cada número com estado explícito (real/calculado/projetado/sem dado) e link à fonte.',
     features: [
-      { ok: false, texto: 'KPIs em tempo real (DSO, DPO, capital de giro)' },
-      { ok: false, texto: 'Saúde do caixa (runway, burn rate)' },
-      { ok: false, texto: 'Comparativo YoY e MoM' },
-      { ok: false, texto: 'Alertas estratégicos' },
-      { ok: false, texto: 'Vista por garagem / consolidada' },
-      { ok: false, texto: 'Exportação executive briefing' },
+      { ok: true, texto: 'KPIs executivos: caixa hoje, gap de caixa projetado, repasse GDF do mês, a pagar em 7d, folha líquida, resultado líquido, DPO e DSO — cada um com estado do dado e atalho pro módulo de origem' },
+      { ok: true, texto: 'Alertas estratégicos: gap de caixa, estouro de orçamento por setor, títulos de prazo longo vencidos, inadimplência histórica e dados sem âncora' },
+      { ok: true, texto: 'Comparativo MoM (mês vs mês anterior) e YoY (vs mesmo mês do ano anterior) do resultado, com evolução de 13 meses' },
+      { ok: true, texto: 'Horizonte de caixa ajustável (semana / mês / trimestre)' },
+      { ok: true, texto: 'Briefing executivo exportável em Excel (KPIs + alertas + comparativo)' },
+      { ok: true, texto: 'Consolidação sem recálculo de negócio: agrega Fluxo de Caixa, DRE, Contas a Pagar, Orçamento e Recebíveis GDF mantendo a rastreabilidade' },
     ],
-    fontesDados: ['Todos os módulos consolidados'],
-    perguntasFinanceiro: [
-      'Quais 5-7 indicadores você acompanha toda semana?',
-      'Qual o ritual de tomada de decisão? (reunião semanal, mensal)',
-      'Você precisa explicar isso pra acionistas/conselho?',
+    fontesDados: ['Fluxo de Caixa', 'DRE', 'Contas a Pagar', 'Orçamento', 'Recebíveis GDF', 'Encargos & Benefícios'],
+    achados: [
+      'Decisão de escopo (jul/2026): as 3 perguntas ao financeiro foram presumidas a partir do que os módulos já entregam (regra do projeto: não travar em pergunta ao financeiro). Indicadores da semana = caixa/gap/GDF/a pagar/folha/resultado/DPO/DSO; ritual = caixa semanal + resultado mensal (toggle semana/mês/trimestre); acionistas/conselho = briefing executivo exportável.',
+      'O painel não tem fonte de dado própria: consolida os módulos prontos e mantém a rastreabilidade até a origem. Onde o dado não existe — capital de giro completo (sem balanço patrimonial no Globus) e receita por garagem (inexistente hoje) — o indicador aparece como "sem dado", nunca inventado.',
+      'DPO = títulos em aberto ÷ pagamento médio diário dos últimos 90 dias. DSO = tempo médio de resgate do GDF na matriz BRB (a receita real da operação; o contas a receber tradicional é residual). Ambos marcados como "calculado".',
     ],
-    estimativaSemanas: 4,
   },
 
   '/auditoria': {
     href: '/auditoria',
     nome: 'Auditoria',
-    status: 'planejado',
-    fase: 'Fase 5 (Compliance)',
-    descricao: 'Trilhas de auditoria de acesso, alterações e conciliações.',
+    status: 'pronto',
+    fase: 'Em produção',
+    descricao: 'Trilha de quem acessou, alterou, aprovou e exportou dados — consulta com filtros + export. Leitura dos logs que o sistema já grava.',
     features: [
-      { ok: true, texto: 'Tabela audit.acesso_dados (já gravando)' },
-      { ok: true, texto: 'Tabela audit.user_activity_logs (já gravando)' },
-      { ok: false, texto: 'UI de consulta de logs com filtros' },
-      { ok: false, texto: 'Trilha de alteração por registro (quem mudou o quê)' },
-      { ok: false, texto: 'Termo de aceite LGPD por acesso a dado sensível' },
-      { ok: false, texto: 'Exportação para auditoria externa' },
+      { ok: true, texto: 'Gravação contínua: audit.acesso_dados (acessos/ações) + audit.user_activity_logs (login/senha)' },
+      { ok: true, texto: 'UI de consulta com filtros (usuário, ação, recurso, período, busca) + paginação' },
+      { ok: true, texto: 'Trilha de alteração por registro (quem alterou/aprovou/rejeitou o quê — ação + recurso + id)' },
+      { ok: true, texto: 'Termo de aceite/comprometimento (LGPD) versionado, com IP e trilha' },
+      { ok: true, texto: 'Exportação para auditoria externa (Excel da trilha filtrada, com o diff)' },
+      { ok: true, texto: 'Diff campo-a-campo (valor antes × depois) nas mutações reais de usuário — âncora de saldo, meta de orçamento, conciliação manual, baixa de reembolso, resposta ao financeiro e admin de usuários (linha expansível na trilha)' },
     ],
-    fontesDados: ['audit.acesso_dados', 'audit.user_activity_logs'],
-    perguntasFinanceiro: [
-      'Existe auditoria externa anual? Qual o escopo?',
-      'Hoje vocês têm trilha de quem alterou cada lançamento?',
-      'Compliance LGPD está endereçado?',
+    fontesDados: ['audit.acesso_dados', 'audit.user_activity_logs', 'identity.usuarios'],
+    achados: [
+      'O sistema é majoritariamente um espelho read-only do Globus; as mutações reais de usuário são um conjunto pequeno e enumerável (aprovações, meta de orçamento, âncora de saldo, conciliação manual, baixa de reembolso, resposta ao financeiro, admin de usuário).',
+      'Por isso o diff campo-a-campo é instrumentado nesses pontos via um helper único (fastify.auditoria.registrarAlteracao), que guarda só os campos que mudaram — não foi preciso instrumentar "cada mutação". Aprovações de CP já têm trilha própria (workflow_evento).',
     ],
-    estimativaSemanas: 3,
   },
 
   '/folha': {
@@ -381,24 +396,30 @@ export const MODULOS: Record<string, ModuloInfo> = {
       { ok: true, texto: 'Definir papel (admin, CFO, controller, analistas)' },
       { ok: true, texto: 'Resetar senha' },
       { ok: false, texto: 'Integração SSO Keycloak (Fase 6)' },
-      { ok: false, texto: 'Permissão granular por módulo' },
+      { ok: true, texto: 'Permissão de funcionalidade por usuário (granular) — começa com "ver contracheque individual" (LGPD): o admin liga/desliga por usuário; backend bloqueia e a Folha esconde o holerite de quem não tem' },
+      { ok: false, texto: 'Matriz completa de permissões por módulo (além das funcionalidades sensíveis)' },
     ],
   },
 
   '/admin/parametros': {
     href: '/admin/parametros',
     nome: 'Parâmetros',
-    status: 'planejado',
-    fase: 'Fase 6 (Configuração)',
-    descricao: 'Parâmetros gerais do sistema (empresa, contas, configurações).',
+    status: 'parcial',
+    fase: 'Em construção',
+    descricao: 'Identidade da empresa (nome, CNPJ, endereço e logo) exibida no login, menu e cabeçalho. Sistema de empresa única (Viação Pioneira).',
     features: [
-      { ok: false, texto: 'Configuração de empresa/filial' },
-      { ok: false, texto: 'Calendário de feriados' },
-      { ok: false, texto: 'Tarifas SEMOB (cadastro e histórico)' },
-      { ok: false, texto: 'Configurações de e-mail/notificação' },
-      { ok: false, texto: 'Logos e branding' },
+      { ok: true, texto: 'Identidade da empresa — razão social, nome fantasia, CNPJ, endereço e telefone (editável por admin)' },
+      { ok: true, texto: 'Logo e branding — upload do logo (data-URI, até 512 KB), aplicado ao vivo no login, menu e cabeçalho; remoção volta ao padrão' },
+      { ok: true, texto: 'Calendário de feriados — cadastro (CRUD) com os nacionais 2026/2027 pré-carregados, consumido pela projeção do Fluxo de Caixa (marca os dias de feriado, sem alterar valores)' },
+      { ok: false, texto: 'Tarifas SEMOB (cadastro e histórico) — planejado; entra quando houver tela de receita técnica que use' },
+      { ok: false, texto: 'Configurações de e-mail/notificação — hoje via variáveis de ambiente (SMTP); migrar pra banco é troca lateral' },
     ],
-    estimativaSemanas: 2,
+    fontesDados: ['identity.configuracao'],
+    achados: [
+      'Empresa única (Viação Pioneira): não há "empresa/filial" a configurar — o que fazia sentido do item era tornar a identidade exibida (nome + logo) editável em vez de fixa no código. Foi o que se construiu.',
+      'Logo guardado como data-URI na tabela (sem object storage: gravar arquivo em disco quebra em container read-only). Branding servido por endpoint público (/api/parametros/branding) pra aparecer também no login, deslogado.',
+      'Feriados foram construídos COM consumidor (a projeção do Fluxo de Caixa marca os dias) — para não virar cadastro morto. Tarifas SEMOB e config de e-mail seguem planejadas pelo mesmo critério: só entram quando algo as consumir (e-mail hoje é via env; a tarifa técnica não é receita real — ver Recebíveis GDF).',
+    ],
   },
 
   '/admin/integracoes': {

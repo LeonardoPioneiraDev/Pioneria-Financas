@@ -60,11 +60,35 @@ FROM node:${NODE_VERSION}-bookworm-slim AS runtime
 # no docker-compose (flag nativa) — evita dependência de apt-get que pode falhar
 # em redes com DNS instável.
 
+# Oracle Instant Client (Modo Thick) — versão DOCKER (Linux x64).
+#  - libaio1: OBRIGATÓRIO (o client linka libaio.so.1; sem ele: DPI-1047). FICA no runtime.
+#  - wget/unzip: o bookworm-slim NÃO traz — instala só pra baixar/extrair e remove depois.
+# O caminho local (Windows) do dev vive no .env (ORACLE_CLIENT_PATH); aqui é /opt/oracle/instantclient.
+WORKDIR /tmp
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends wget unzip libaio1 ca-certificates \
+ && mkdir -p /opt/oracle \
+ && wget -q https://download.oracle.com/otn_software/linux/instantclient/1923000/instantclient-basic-linux.x64-19.23.0.0.0dbru.zip \
+ && wget -q https://download.oracle.com/otn_software/linux/instantclient/1923000/instantclient-sqlplus-linux.x64-19.23.0.0.0dbru.zip \
+ && unzip -o instantclient-basic-linux.x64-19.23.0.0.0dbru.zip -d /opt/oracle/ \
+ && unzip -o instantclient-sqlplus-linux.x64-19.23.0.0.0dbru.zip -d /opt/oracle/ \
+ && mv /opt/oracle/instantclient_19_23 /opt/oracle/instantclient \
+ && rm -f /tmp/instantclient-*.zip \
+ && apt-get purge -y wget unzip && apt-get autoremove -y \
+ && rm -rf /var/lib/apt/lists/*
+
 ENV NODE_ENV=production
 ENV TZ=America/Sao_Paulo
 ENV BACKEND_HOST=0.0.0.0
 ENV BACKEND_PORT=3333
 ENV ORACLE_ENABLED=false
+
+# Oracle environment. ORACLE_CLIENT_PATH é o que o CÓDIGO lê (initOracleClient libDir).
+# No Docker é sempre este caminho; no dev (Windows) vem do .env com o caminho local.
+ENV ORACLE_HOME=/opt/oracle/instantclient
+ENV LD_LIBRARY_PATH=/opt/oracle/instantclient
+ENV PATH=/opt/oracle/instantclient:$PATH
+ENV ORACLE_CLIENT_PATH=/opt/oracle/instantclient
 
 WORKDIR /app
 

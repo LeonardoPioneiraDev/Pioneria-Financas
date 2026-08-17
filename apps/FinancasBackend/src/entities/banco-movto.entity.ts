@@ -51,6 +51,13 @@ export class BancoMovto {
   @Column({ name: 'valor_cents', type: 'bigint' })
   valorCents!: string;
 
+  /**
+   * Valor COM SINAL (VLMOVTOBCO): + entrou, − saiu. Base do saldo acumulado.
+   * Null = sem sinal conhecido (não força; fiel a "não inventa").
+   */
+  @Column({ name: 'efeito_saldo_cents', type: 'bigint', nullable: true })
+  efeitoSaldoCents!: string | null;
+
   @Column({ name: 'cod_histo_bco', type: 'int', nullable: true })
   codHistoBco!: number | null;
 

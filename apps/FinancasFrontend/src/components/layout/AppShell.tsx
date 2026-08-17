@@ -3,7 +3,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { AppHeader } from './AppHeader';
 import { Sidebar } from './Sidebar';
-import { buildNavigationGroups } from './navigation';
+import { buildNavigationGroups, restricaoDoUsuario } from './navigation';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface AppShellProps {
@@ -17,7 +17,8 @@ export function AppShell({ children }: AppShellProps) {
 
   const navigationGroups = useMemo(() => {
     if (!user) return [];
-    return buildNavigationGroups(user.role);
+    // Auditor em trilha vê só as liberadas; CFO vê o espelho da conferência.
+    return buildNavigationGroups(user.role, restricaoDoUsuario(user));
   }, [user]);
 
   const handleLogout = (): void => {

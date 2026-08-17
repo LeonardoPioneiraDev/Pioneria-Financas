@@ -1,6 +1,7 @@
 'use client';
 
 import { format } from 'date-fns';
+import { Flag } from 'lucide-react';
 import type { ProjecaoResponse } from '@pioneira/shared';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
@@ -197,7 +198,17 @@ export function GraficoProjecao({ projecao }: { projecao: ProjecaoResponse }) {
                   )}
                 >
                   <td className="px-3 py-1.5 font-mono whitespace-nowrap">
-                    {format(new Date(`${d.data}T00:00:00`), 'dd/MM (EEE)')}
+                    <span className="inline-flex items-center gap-1.5">
+                      {format(new Date(`${d.data}T00:00:00`), 'dd/MM (EEE)')}
+                      {d.feriadoNome && (
+                        <span
+                          title={d.feriadoNome}
+                          className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
+                        >
+                          <Flag className="h-2.5 w-2.5" /> feriado
+                        </span>
+                      )}
+                    </span>
                   </td>
                   <td className="px-3 py-1.5 text-right font-mono text-emerald-700 dark:text-emerald-400">
                     {d.entradasAjustadasCents > 0 ? `+${moedaCurta(d.entradasAjustadasCents)}` : '—'}

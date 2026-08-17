@@ -197,3 +197,33 @@ avisa e NÃO redistribui — rateio é decisão do financeiro). Duas queries de 
   classificação passou a ser por **prefixo** (dezena de milhar), não por código exato, senão
   sub-códigos cairiam em "não classificado". Fora da faixa há centros legados (PMDF, COMLURB,
   CARGA, OBRA) → 'indefinido'.
+
+### Comparativo realizado × orçado sugerido + estouro (2026-07-15)
+
+Fecha 2 das 5 pendentes SEM depender do financeiro (tudo do CP já no banco): o endpoint
+`/api/orcamento/derivado` passou a trazer, por setor, o **realizado do último mês COMPLETO**
+(ignora o mês corrente parcial) confrontado com o orçado sugerido (a média 12m):
+`realizadoMesCents`, `variacaoPerc` (= realizadoMes/sugerido·100) e `estourou` (>110%). A tela
+mostra, por setor, "orçado R$X/mês · {mês}: R$Y (Z%) ⚠️" e um resumo "realizado × orçado do mês +
+N setores acima de 110%". É comparação do setor com **a própria média** (ritmo), rotulada como tal —
+não com orçamento oficial. `module-status`: comparativo + estouro viraram `ok:true` (4/7).
+
+### Aceite/ajuste (orçado de referência) + export + workflow fora de escopo (2026-07-15)
+
+Decisão de PM (com o user): **não perseguir 7/7** — workflow de aprovação é gold-plating pra uma
+empresa que não orça formalmente. O "done" honesto:
+
+- **Orçado de REFERÊNCIA (meta):** nova tabela `finance.orcamento_meta` (1 linha por CODCUSTOFIN,
+  migration `1700000048000` — 47000 já era do DRE). O financeiro **adota e ajusta** a base técnica
+  (editável por setor + fator global ±%) e vira a **meta** que o sistema acompanha. O `derivado`
+  passou a carregar a meta: quando existe, o comparativo (variação/estouro) usa a **meta** como
+  orçado; senão, a média. Endpoints `GET/POST /api/orcamento/meta`. UI: botão "Adotar/ajustar" →
+  modo edição inline com inputs por setor + "fator" global; ao salvar, o painel vira "Orçado de
+  referência · adotado".
+- **Export:** `GET /api/orcamento/export` → xlsx (exceljs) do comparativo (setor, natureza, orçado,
+  fonte meta/base, realizado do mês, variação, estouro). Botão "Exportar".
+- **Workflow de aprovação:** marcado **fora de escopo** (governança que a Pioneira não usa; reabrir
+  se criarem o processo).
+
+`module-status`: `/orcamento` → **`pronto` (Em produção)**. Roda: `migration:run` cria a
+`orcamento_meta` (o comparativo/base/export funcionam sem ela; só o "Adotar" precisa da tabela).

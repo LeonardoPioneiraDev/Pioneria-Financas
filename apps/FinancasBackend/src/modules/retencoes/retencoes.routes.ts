@@ -17,7 +17,7 @@ export const retencoesModule: FastifyPluginAsyncTypebox = async (fastify) => {
       preHandler: [auth],
       schema: {
         tags: ['retencoes'],
-        summary: 'Aliquotas padrao usadas pelo sistema',
+        summary: 'Alíquotas padrão usadas pelo sistema',
         response: { 200: AliquotasUsadasResponseSchema },
         security: [{ bearerAuth: [] }],
       },
@@ -31,10 +31,10 @@ export const retencoesModule: FastifyPluginAsyncTypebox = async (fastify) => {
       preHandler: [auth],
       schema: {
         tags: ['retencoes'],
-        summary: 'Lista titulos com divergencia entre retido (Globus) e esperado (heuristica)',
+        summary: 'Lista títulos com divergência entre retido (Globus) e esperado (heurística)',
         description:
-          'Busca NFs (NF/NFE/NFV/NFS) com valor positivo, calcula retencao esperada pela ' +
-          'heuristica Lucro Real e retorna apenas titulos com divergencia em algum dos impostos.',
+          'Busca NFs (NF/NFE/NFV/NFS) com valor positivo, calcula retenção esperada pela ' +
+          'heurística Lucro Real e retorna apenas títulos com divergência em algum dos impostos.',
         response: { 200: ConferenciaDivergenciasResponseSchema },
         security: [{ bearerAuth: [] }],
       },
@@ -48,7 +48,7 @@ export const retencoesModule: FastifyPluginAsyncTypebox = async (fastify) => {
       preHandler: [auth],
       schema: {
         tags: ['retencoes'],
-        summary: 'Conferencia tributaria detalhada de um CP especifico',
+        summary: 'Conferência tributária detalhada de um CP específico',
         params: Type.Object({ id: Type.String({ format: 'uuid' }) }),
         response: { 200: ConferenciaDoTituloResponseSchema },
         security: [{ bearerAuth: [] }],

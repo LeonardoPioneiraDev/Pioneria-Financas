@@ -1,13 +1,15 @@
 'use client';
 
 import { useEffect } from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { LogOut, Menu, Moon, Sun, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useBranding } from '@/hooks/useBranding';
+import { useRessalvasAbertas } from '@/hooks/useRessalvasAbertas';
 import { cn } from '@/lib/utils';
+import { Notificacoes } from './Notificacoes';
 import type { NavigationGroup } from './navigation';
 
 interface AppHeaderProps {
@@ -28,6 +30,8 @@ export function AppHeader({
   const { user } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const pathname = usePathname();
+  const { logoSrc, nomeFantasia } = useBranding();
+  const ressalvasAbertas = useRessalvasAbertas();
 
   useEffect(() => {
     if (sidebarOpen) {
@@ -54,24 +58,27 @@ export function AppHeader({
               {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
             <Link href="/dashboard" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-              <Image
-                src="/logo.png"
-                alt="Viacao Pioneira"
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={logoSrc}
+                alt={nomeFantasia}
                 width={28}
                 height={28}
-                className="rounded-full ring-1 ring-pioneira-300/50 dark:ring-yellow-400/30"
+                className="h-7 w-7 rounded-full object-cover ring-1 ring-pioneira-300/50 dark:ring-yellow-400/30"
               />
               <span className="hidden sm:block text-sm font-semibold text-pioneira-900 dark:text-yellow-300">
-                Viacao Pioneira
+                {nomeFantasia}
               </span>
             </Link>
           </div>
 
           <h1 className="absolute left-1/2 -translate-x-1/2 text-sm font-bold text-pioneira-900 dark:text-yellow-300 sm:text-base truncate max-w-[200px] sm:max-w-none">
-            Pioneira Financas
+            Pioneira Finanças
           </h1>
 
           <div className="flex items-center gap-2">
+            <Notificacoes />
+
             <button
               onClick={toggleTheme}
               className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-yellow-400/10 transition-colors"
@@ -146,7 +153,12 @@ export function AppHeader({
                                   : 'text-gray-400 dark:text-gray-400 group-hover:text-gray-600 dark:group-hover:text-yellow-300',
                               )}
                             />
-                            <span>{item.name}</span>
+                            <span className="flex-1">{item.name}</span>
+                            {item.href === '/validacoes' && ressalvasAbertas > 0 && (
+                              <span className="shrink-0 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+                                {ressalvasAbertas}
+                              </span>
+                            )}
                           </Link>
                         </li>
                       );

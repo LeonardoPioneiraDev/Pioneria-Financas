@@ -34,7 +34,22 @@
  * DATA_VENCIMENTO e PAGAMENTOCPG AS DATA_PAGAMENTO nos dois modos. Mesmos binds
  * (:empresa, :dt_ini, :dt_fim_excl), semi-aberto (dt_fim_excl EXCLUSIVO).
  */
-function buildContasAPagarQuery(dataColuna: 'VENCIMENTOCPG' | 'PAGAMENTOCPG'): string {
+/**
+ * `dataColuna`: janela por vencimento (default) ou por pagamento (auditoria).
+ * `porCodigos`: quando true, o WHERE filtra por lista de CODDOCTOCPG
+ *   (placeholder `__CODIGOS__`) EM VEZ da janela de data — usado pela
+ *   RECONCILIAÇÃO, que reconsulta títulos abertos por chave para pegar
+ *   prorrogação de vencimento, cancelamento ou pagamento que os tirou da janela.
+ */
+function buildContasAPagarQuery(
+  dataColuna: 'VENCIMENTOCPG' | 'PAGAMENTOCPG',
+  porCodigos = false,
+): string {
+  const filtro = porCodigos
+    ? 'AND D.CODDOCTOCPG IN (__CODIGOS__)'
+    : `AND D.${dataColuna}  >= :dt_ini
+      AND D.${dataColuna}  <  :dt_fim_excl`;
+  const ordem = porCodigos ? 'D.CODDOCTOCPG' : `D.${dataColuna} DESC, D.CODDOCTOCPG`;
   return `
     SELECT /*+ NO_PARALLEL */
       D.CODDOCTOCPG          AS COD_DOCTO_CPG,
@@ -191,10 +206,18 @@ function buildContasAPagarQuery(dataColuna: 'VENCIMENTOCPG' | 'PAGAMENTOCPG'): s
       -- Sem filtro de STATUSDOCTOCPG: cancelados (C) tambem vem, para que o
       -- adapter possa detectar exclusao no Globus (Sprint 2.3). ETL/UI filtram
       -- excluido_em IS NULL.
-      AND D.${dataColuna}  >= :dt_ini
-      AND D.${dataColuna}  <  :dt_fim_excl
-    ORDER BY D.${dataColuna} DESC, D.CODDOCTOCPG
+      ${filtro}
+    ORDER BY ${ordem}
   `;
+}
+
+/**
+ * Mesma projeção do contasAPagar, filtrando por CODMOVTOBCO IN (__CODMOVTOS__).
+ * Reusa o corpo do builder por códigos e só troca a coluna do IN.
+ */
+function buildContasAPagarQueryPorCodMovto(): string {
+  return buildContasAPagarQuery('VENCIMENTOCPG', true)
+    .replace('AND D.CODDOCTOCPG IN (__CODIGOS__)', 'AND D.CODMOVTOBCO IN (__CODMOVTOS__)');
 }
 
 export const GLOBUS_QUERIES = {
@@ -238,6 +261,52 @@ export const GLOBUS_QUERIES = {
    * `contasAPagar`. Ver SFN-47.
    */
   contasAPagarPorPagamento: buildContasAPagarQuery('PAGAMENTOCPG'),
+
+  /**
+   * RECONCILIAÇÃO — mesma projeção do contasAPagar, mas filtrando por lista de
+   * CODDOCTOCPG (placeholder `__CODIGOS__`) em vez da janela de data.
+   * Reconsulta títulos que já temos, por chave, para capturar mudanças que os
+   * tiraram da janela de vencimento (prorrogação, cancelamento, pagamento).
+   */
+  contasAPagarPorCodigos: buildContasAPagarQuery('VENCIMENTOCPG', true),
+
+  /**
+   * CONFERÊNCIA — totais do CP direto no Globus, agregados por STATUSDOCTOCPG.
+   *
+   * Serve para comparar com os nossos números e detectar divergência SOZINHO,
+   * sem depender de alguém notar. Foi assim que o cancelado somando passou
+   * despercebido até o financeiro trazer uma planilha (23/07/2026): cada linha
+   * estava certa, o erro só aparecia no TOTAL contra fonte independente.
+   *
+   * Agrega no Oracle (não traz linha) — barato o suficiente para rodar a cada
+   * sincronismo.
+   *
+   * Binds: :empresa, :dt_ini, :dt_fim_excl (janela por VENCIMENTOCPG).
+   * Granularidade: 1 linha por (STATUSDOCTOCPG, tem substituto).
+   */
+  conferenciaCpTotais: `
+    SELECT
+      D.STATUSDOCTOCPG                                        AS STATUS_DOCTO,
+      CASE WHEN D.CODDOCTOCPGSUBST IS NULL THEN 'N' ELSE 'S' END AS SUBSTITUIDO,
+      COUNT(*)                                                AS QTDE,
+      -- MESMA regra do ETL: bruto = soma dos ITENS por parcela (VLR_TOTAL_ITENS).
+      -- NAO usar VLR_ORIGINAL: tem acrescimo embutido e, na 1a parcela, traz o
+      -- total do documento inteiro — conferir contra ele daria falso alarme.
+      -- Fallback no VLR_ORIGINAL so quando o titulo nao tem itens.
+      SUM(NVL(
+        (SELECT SUM(I.VALORITEMDOC) FROM CPGITDOC I WHERE I.CODDOCTOCPG = D.CODDOCTOCPG),
+        D.VLR_ORIGINAL
+      ))                                                      AS VLR_ORIGINAL,
+      SUM(NVL(D.DESCONTOCPG, 0))                              AS DESCONTO,
+      SUM(NVL(D.ACRESCIMOCPG, 0))                             AS ACRESCIMO
+    FROM   CPGDOCTO D
+    WHERE  D.CODIGOEMPRESA  = :empresa
+      AND  D.VENCIMENTOCPG >= :dt_ini
+      AND  D.VENCIMENTOCPG <  :dt_fim_excl
+    GROUP  BY D.STATUSDOCTOCPG,
+              CASE WHEN D.CODDOCTOCPGSUBST IS NULL THEN 'N' ELSE 'S' END
+    ORDER  BY 1, 2
+  `,
 
   /**
    * Trilha de eventos do CP — GLOBUS.CPGDOCTO_HISTORICO_NEGOCIACOES.
@@ -735,6 +804,54 @@ export const GLOBUS_QUERIES = {
     ORDER BY M.DTMOVTOBCO DESC, M.CODMOVTOBCO
   `,
 
+  /**
+   * RECONCILIAÇÃO do extrato por chave: reconsulta movimentos por CODMOVTOBCO
+   * (placeholder `__CODMOVTOS__`), SEM filtro de data e SEM excluir cancelados.
+   *
+   * Traz o STATUSMOVTOBCO atual para o service detectar movimentos que o Globus
+   * CANCELOU depois de já os termos sincronizado — o sync por janela nunca vê
+   * essa mudança (o movimento sai da janela). Mesma projeção do bcoMovtoMes.
+   */
+  bcoMovtoPorCodigos: `
+    SELECT /*+ NO_PARALLEL */
+      M.CODMOVTOBCO        AS COD_MOVTO_BCO,
+      M.CODIGOEMPRESA      AS CODIGO_EMPRESA,
+      M.CODIGOFL           AS CODIGO_FL,
+      M.CODBANCO           AS COD_BANCO,
+      M.CODAGENCIA         AS COD_AGENCIA,
+      M.CODCONTABCO        AS COD_CONTA_BCO,
+      M.DTMOVTOBCO         AS DATA_MOVTO,
+      M.DTEFETIVAMOVTOBCO  AS DATA_EFETIVA,
+      M.DATA_CREDITO       AS DATA_CREDITO,
+      M.VLMOVTOBCO         AS VALOR,
+      M.CODHISTOBCO        AS COD_HISTO_BCO,
+      H.DESCHISTOBCO       AS DESC_HISTO_BCO,
+      H.DEBCREDHISTBCO     AS DEBITO_CREDITO,
+      SUBSTR(M.HISTMOVTOBCO, 1, 500) AS HIST_MOVTO_BCO,
+      M.DOCMOVTOBCO        AS DOC_MOVTO_BCO,
+      M.CONFIRMADOMOVTOBCO AS CONFIRMADO,
+      M.CONCILIADOMOVTOBCO AS CONCILIADO,
+      M.STATUSMOVTOBCO     AS STATUS_MOVTO,
+      M.CODTPDESPESA       AS COD_TP_DESPESA,
+      M.CODTPRECEITA       AS COD_TP_RECEITA,
+      M.CODCUSTO           AS COD_CUSTO
+    FROM   BCOMOVTO M
+    LEFT JOIN BCOHISTO H ON H.CODHISTOBCO    = M.CODHISTOBCO
+                         AND H.CODIGOEMPRESA = M.CODIGOEMPRESA
+                         AND H.CODIGOFL      = M.CODIGOFL
+    WHERE  M.CODIGOEMPRESA = :empresa
+      AND  M.CODMOVTOBCO IN (__CODMOVTOS__)
+    ORDER BY M.CODMOVTOBCO
+  `,
+
+  /**
+   * Títulos CPGDOCTO ligados a uma lista de CODMOVTOBCO (placeholder
+   * `__CODMOVTOS__`). Usado pela reconciliação bancária para PUXAR os títulos
+   * que um borderô pagou mas que a janela de sync do CP não trouxe — depois de
+   * sincronizados, ligam sozinhos ao lançamento por cod_movto_bco.
+   */
+  contasAPagarPorCodMovto: buildContasAPagarQueryPorCodMovto(),
+
   // ========================================================================
   // * Cadastro de contas bancarias (BCOCONTA) — usado pelo modulo Fluxo de Caixa.
   // *
@@ -941,6 +1058,34 @@ export const GLOBUS_QUERIES = {
       AND  V.CONDICAOVEIC = 'A'
     GROUP BY V.CODIGOGA, V.CODIGOTPFROTA, TF.DESCRICAOTPFROTA
     ORDER BY V.CODIGOGA, QTD DESC
+  `,
+
+  /**
+   * DRE contabil — contas de RESULTADO do razao (CTBSALDO), plano 1, empresa.
+   * Classe 3 (despesa) e 4 (receita), SO folhas (exclui sinteticos '.0000', que o
+   * CTBSALDO guarda junto e TRIPLICAM o valor: nivel-3 + nivel-4 + folha).
+   * Consolida filiais (SUM sobre CODIGOFL/CODTPLNC da PK). Ultimos 36 meses.
+   *
+   * Binds: :empresa
+   */
+  dreContabil: `
+    SELECT /*+ NO_PARALLEL */
+      S.CODIGOEMPRESA        AS CODIGO_EMPRESA,
+      S.PERIODOSALDO         AS PERIODO,
+      S.CODCONTACTB          AS COD_CONTA_CTB,
+      C.CLASSIFICADOR        AS CLASSIFICADOR,
+      C.NOMECONTA            AS NOME_CONTA,
+      SUM(S.VLDEBITOSALDO)   AS VL_DEBITO,
+      SUM(S.VLCREDITOSALDO)  AS VL_CREDITO
+    FROM   CTBSALDO S
+    JOIN   CTBCONTA C ON C.CODCONTACTB = S.CODCONTACTB AND C.NROPLANO = S.NROPLANO
+    WHERE  S.CODIGOEMPRESA = :empresa
+      AND  S.NROPLANO = 1
+      AND  REGEXP_LIKE(C.CLASSIFICADOR, '^[34]')
+      AND  C.CLASSIFICADOR NOT LIKE '%.0000'
+      AND  S.PERIODOSALDO >= TO_CHAR(ADD_MONTHS(SYSDATE, -36), 'YYYYMM')
+    GROUP BY S.CODIGOEMPRESA, S.PERIODOSALDO, S.CODCONTACTB, C.CLASSIFICADOR, C.NOMECONTA
+    ORDER BY S.PERIODOSALDO DESC, C.CLASSIFICADOR
   `,
 
   /**

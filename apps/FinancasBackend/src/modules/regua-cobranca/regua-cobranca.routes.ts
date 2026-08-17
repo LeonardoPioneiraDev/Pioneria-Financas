@@ -21,7 +21,7 @@ export const reguaCobrancaModule: FastifyPluginAsyncTypebox = async (fastify) =>
       preHandler: [authL],
       schema: {
         tags: ['regua-cobranca'],
-        summary: 'Lista templates de cobranca configurados',
+        summary: 'Lista templates de cobrança configurados',
         response: { 200: ReguaTemplatesListResponseSchema },
         security: [{ bearerAuth: [] }],
       },
@@ -35,7 +35,7 @@ export const reguaCobrancaModule: FastifyPluginAsyncTypebox = async (fastify) =>
       preHandler: [authW],
       schema: {
         tags: ['regua-cobranca'],
-        summary: 'Cria novo template de cobranca',
+        summary: 'Cria novo template de cobrança',
         body: ReguaTemplateCreateSchema,
         response: { 200: ReguaTemplateSchema },
         security: [{ bearerAuth: [] }],
@@ -66,7 +66,7 @@ export const reguaCobrancaModule: FastifyPluginAsyncTypebox = async (fastify) =>
       preHandler: [authL],
       schema: {
         tags: ['regua-cobranca'],
-        summary: 'Historico de envios (ultimos 200)',
+        summary: 'Histórico de envios (últimos 200)',
         response: { 200: ReguaEnviosListResponseSchema },
         security: [{ bearerAuth: [] }],
       },
@@ -80,15 +80,22 @@ export const reguaCobrancaModule: FastifyPluginAsyncTypebox = async (fastify) =>
       preHandler: [authW],
       schema: {
         tags: ['regua-cobranca'],
-        summary: 'Dispara execucao da regua AGORA (modo simulado)',
+        summary: 'Dispara execução da régua AGORA (modo simulado)',
         description:
           'Pra cada CR aberto, calcula dias_vencidos e dispara templates ativos cujo ' +
-          'gatilho bate. Idempotente: nao reenvia mesmo template+CR no mesmo dia.',
+          'gatilho bate. Idempotente: não reenvia mesmo template+CR no mesmo dia.',
         response: { 200: ReguaSimularResponseSchema },
         security: [{ bearerAuth: [] }],
       },
       config: { rateLimit: { max: 5, timeWindow: '5 minutes' } },
     },
-    async () => service.simularExecucao(),
+    // MOCK DESATIVADO (a pedido): não disparar envios simulados. Reativar quando
+    // houver provedor real de e-mail/WhatsApp configurado. Código original preservado:
+    // async () => service.simularExecucao(),
+    async () => {
+      throw fastify.httpErrors.notImplemented(
+        'Execução da régua não configurada: provedor de e-mail/WhatsApp real ausente (modo mock desativado).',
+      );
+    },
   );
 };

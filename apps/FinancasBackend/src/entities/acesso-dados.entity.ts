@@ -40,6 +40,17 @@ export class AcessoDados {
   @Column({ type: 'jsonb', nullable: true })
   filtros!: Record<string, unknown> | null;
 
+  /**
+   * Diff campo-a-campo (so nas acoes de alteracao). Guarda APENAS os campos que
+   * mudaram: `valoresAntes` = valor anterior por campo, `valoresDepois` = novo.
+   * Null quando a acao nao e uma alteracao (ex.: visualizou/exportou).
+   */
+  @Column({ name: 'valores_antes', type: 'jsonb', nullable: true })
+  valoresAntes!: Record<string, unknown> | null;
+
+  @Column({ name: 'valores_depois', type: 'jsonb', nullable: true })
+  valoresDepois!: Record<string, unknown> | null;
+
   @Column({ name: 'ip_address', type: 'inet', nullable: true })
   ipAddress!: string | null;
 

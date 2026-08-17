@@ -11,19 +11,20 @@ import { cn } from '@/lib/utils';
  * conversar com TI.
  */
 export function FontesDosDados({
-  glosaPerc,
   inadimplenciaPerc,
   gdfMediaDiariaCents,
-  gdfDiasAnalisados,
+  gdfDiasComRepasse,
+  gdfJanelaDias,
   horizonteDias,
 }: {
-  glosaPerc: number;
   inadimplenciaPerc: number;
   gdfMediaDiariaCents: number;
-  gdfDiasAnalisados: number;
+  gdfDiasComRepasse: number;
+  gdfJanelaDias: number;
   horizonteDias: number;
 }) {
-  const [aberto, setAberto] = useState(false);
+  // Aberto por padrão: é a melhor explicação da tela — não faz sentido esconder.
+  const [aberto, setAberto] = useState(true);
 
   return (
     <Card className="overflow-hidden">
@@ -60,32 +61,35 @@ export function FontesDosDados({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <FonteCard
               icone={<Bus className="h-5 w-5" />}
-              titulo="Receita BRB Mobilidade"
-              subtitulo="fonte principal — quase tudo que entra"
+              titulo="Repasse do GDF (BRB Mobilidade)"
+              subtitulo="fonte principal — repasse real que cai no banco"
               cor="emerald"
               corpo={
                 <>
                   <p>
-                    A <strong>maior parte do que entra</strong> no caixa vem da BRB. Cada vez
-                    que um passageiro paga com cartão BRB no ônibus, a BRB registra a passagem.
-                    Depois de <strong>1 a 2 dias</strong>, a BRB transfere o dinheiro pra
-                    conta da Pioneira no Banco de Brasília.
+                    A <strong>maior parte do que entra</strong> no caixa vem do repasse do{' '}
+                    <strong>GDF via BRB Mobilidade</strong>. O governo paga a{' '}
+                    <strong>tarifa técnica</strong> — o valor cheio da passagem, não só o que o
+                    passageiro pagou no cartão — incluindo o complemento das gratuidades, que
+                    costuma chegar depois e maior, às vezes referente a meses anteriores.
                   </p>
                   <p className="mt-2">
-                    <strong>Como o sistema prevê isso:</strong> olha quanto entrou nos últimos{' '}
-                    <strong>60 dias</strong> e calcula a média diária. Depois multiplica pelo
-                    número de dias do horizonte que você escolheu.
+                    <strong>De onde o sistema tira o número:</strong> dos repasses que{' '}
+                    <strong>de fato caíram no extrato bancário</strong> nos últimos{' '}
+                    <strong>{gdfJanelaDias} dias</strong> — <em>não</em> da matriz de bilhetagem
+                    (o que passou no cartão), que é bem menor. Calcula a média por dia e projeta
+                    pros próximos {horizonteDias} dias.
                   </p>
-                  {gdfDiasAnalisados >= 7 && (
+                  {gdfDiasComRepasse > 0 && (
                     <p className="mt-2 text-emerald-700 dark:text-emerald-400">
                       <strong>Atualmente:</strong> média de R${' '}
                       {(gdfMediaDiariaCents / 100).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}/dia
-                      (baseada em {gdfDiasAnalisados} dias de histórico).
+                      (repasses reais em {gdfDiasComRepasse} dias dentro da janela de {gdfJanelaDias}).
                     </p>
                   )}
                   <p className="mt-2 text-amber-700 dark:text-amber-400 text-xs">
-                    ⚠ <strong>Limitação:</strong> é previsão, não certeza. A BRB pode pagar
-                    mais ou menos que o esperado em qualquer dia.
+                    ⚠ <strong>Limitação:</strong> o repasse é irregular (dias com muito, dias com
+                    nada) — a média suaviza, mas é previsão, não certeza.
                   </p>
                 </>
               }
@@ -121,25 +125,26 @@ export function FontesDosDados({
 
             <FonteCard
               icone={<Wallet className="h-5 w-5" />}
-              titulo="Contas a Pagar (CP)"
+              titulo="Saídas: Folha + Contas a Pagar"
               subtitulo="tudo que a Pioneira tem que pagar"
               cor="red"
               corpo={
                 <>
-                  <p>Todo dinheiro que precisa <strong>sair</strong> do caixa:</p>
+                  <p>Todo dinheiro que precisa <strong>sair</strong> do caixa vem de 2 fontes:</p>
                   <ul className="mt-1 ml-4 list-disc text-xs">
-                    <li><strong>Folha</strong> — salários, encargos, FGTS, INSS</li>
+                    <li><strong>Folha (a maior saída)</strong> — salários líquidos, do dado real da folha (FLP), projetada pela folha mais recente</li>
                     <li><strong>NF</strong> — fornecedores (combustível, peças, serviços)</li>
-                    <li><strong>Guia</strong> — tributos (PIS, COFINS, ISS, etc.)</li>
-                    <li><strong>Manual</strong> — lançamentos avulsos digitados no Globus</li>
+                    <li><strong>Guias</strong> — tributos + encargos da folha (FGTS, INSS, IRRF)</li>
+                    <li><strong>Pensão / manuais</strong> — lançados no Globus</li>
                   </ul>
                   <p className="mt-2">
-                    <strong>Como o sistema prevê isso:</strong> soma os títulos com data de
-                    vencimento entre amanhã e {horizonteDias} dias à frente. Só conta o que
-                    ainda <strong>não foi pago</strong> (pendente, aprovado ou em aprovação).
+                    <strong>Como o sistema prevê isso:</strong> a folha vem do líquido da folha
+                    mensal; o resto soma os títulos a pagar (CP) que vencem nos próximos{' '}
+                    {horizonteDias} dias e ainda não foram pagos.
                   </p>
                   <p className="mt-2 text-emerald-700 dark:text-emerald-400 text-xs">
-                    ✓ <strong>Confiável:</strong> são compromissos já registrados, não previsão.
+                    ✓ A folha era a maior saída e antes ficava <strong>de fora</strong> — agora entra
+                    pelo dado real, então a cobertura reflete o caixa de verdade.
                   </p>
                 </>
               }
@@ -147,21 +152,17 @@ export function FontesDosDados({
 
             <FonteCard
               icone={<Settings2 className="h-5 w-5" />}
-              titulo="Ajustes aplicados"
-              subtitulo="por que o sistema desconta uma % das receitas"
+              titulo="Ajuste aplicado"
+              subtitulo="por que o sistema desconta uma % do CR"
               cor="amber"
               corpo={
                 <>
                   <p>
-                    Nem todo dinheiro previsto chega no caixa. O sistema desconta uma{' '}
-                    porcentagem pra não <strong>superestimar</strong> o que vai entrar:
+                    O <strong>repasse do GDF</strong> já entra pelo <strong>valor real do
+                    extrato</strong> — é dinheiro que já caiu, então não precisa de ajuste. Só o{' '}
+                    <strong>CR</strong> leva um desconto pra não superestimar:
                   </p>
                   <ul className="mt-2 ml-4 list-disc text-xs space-y-1">
-                    <li>
-                      <strong>Glosa BRB ({glosaPerc.toFixed(2)}%):</strong> diferença
-                      histórica entre o que a BRB prometeu e o que efetivamente caiu no
-                      banco nos últimos 60 dias. Pode ser por erro, taxa ou atraso.
-                    </li>
                     <li>
                       <strong>Inadimplência CR ({inadimplenciaPerc.toFixed(2)}%):</strong>{' '}
                       % dos clientes que normalmente atrasam mais de 30 dias ou cancelam
@@ -180,7 +181,7 @@ export function FontesDosDados({
           <div className="mt-4 pt-3 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400">
             <strong className="text-gray-700 dark:text-gray-300">Resumo da conta:</strong>{' '}
             Para cada dia, o sistema faz: <code className="px-1 bg-gray-100 dark:bg-gray-800 rounded">
-              (BRB médio - glosa) + (CR vencendo - inadimplência) - (CP vencendo)
+              (repasse GDF médio do extrato) + (CR vencendo - inadimplência) - (CP vencendo)
             </code>{' '}
             = saldo do dia. Quando esse saldo acumulado fica negativo, é o que
             chamamos de <strong>gap de caixa</strong>.

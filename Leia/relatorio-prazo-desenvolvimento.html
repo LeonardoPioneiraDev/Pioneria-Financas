@@ -1,0 +1,951 @@
+<title>Sistema Financeiro Pioneira — da ideia à produção</title>
+<style>
+  :root {
+    --paper:      #FBFBFC;
+    --surface:    #FFFFFF;
+    --ink:        #14161C;
+    --muted:      #5B6170;
+    --faint:      #878D9B;
+    --rule:       #E1E4EA;
+    --rule-firm:  #C9CED8;
+    --accent:     #C4840B;
+    --accent-soft:#FBF0D8;
+    --ok:         #1C7A4B;
+    --ok-soft:    #E4F2EA;
+    --fail:       #AE3A2D;
+    --fail-soft:  #F8E7E4;
+    --wait:       #8A8F9C;
+    --wait-soft:  #EEF0F3;
+    --shadow:     0 1px 2px rgba(20,22,28,.05), 0 8px 24px -16px rgba(20,22,28,.25);
+
+    --serif: Cambria, Georgia, "Times New Roman", serif;
+    --sans:  "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    --mono:  Consolas, "SFMono-Regular", "Roboto Mono", "Courier New", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:      #0E1014;
+      --surface:    #171A21;
+      --ink:        #E7E9ED;
+      --muted:      #99A0AE;
+      --faint:      #767D8C;
+      --rule:       #252A33;
+      --rule-firm:  #363D49;
+      --accent:     #F0B437;
+      --accent-soft:#2A2113;
+      --ok:         #4FBB86;
+      --ok-soft:    #12251C;
+      --fail:       #E4715F;
+      --fail-soft:  #2A1815;
+      --wait:       #7C8391;
+      --wait-soft:  #1D2129;
+      --shadow:     0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper:      #0E1014;
+    --surface:    #171A21;
+    --ink:        #E7E9ED;
+    --muted:      #99A0AE;
+    --faint:      #767D8C;
+    --rule:       #252A33;
+    --rule-firm:  #363D49;
+    --accent:     #F0B437;
+    --accent-soft:#2A2113;
+    --ok:         #4FBB86;
+    --ok-soft:    #12251C;
+    --fail:       #E4715F;
+    --fail-soft:  #2A1815;
+    --wait:       #7C8391;
+    --wait-soft:  #1D2129;
+    --shadow:     0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16.5px;
+    line-height: 1.62;
+    margin: 0;
+    padding: 0 24px 96px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 50rem; margin: 0 auto; }
+
+  .head { padding: 72px 0 40px; border-bottom: 2px solid var(--ink); }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 20px;
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-size: clamp(34px, 6vw, 52px);
+    line-height: 1.08;
+    font-weight: 700;
+    letter-spacing: -.015em;
+    text-wrap: balance;
+    margin: 0 0 18px;
+  }
+
+  .standfirst {
+    font-size: 19px;
+    line-height: 1.5;
+    color: var(--muted);
+    max-width: 40rem;
+    margin: 0;
+    text-wrap: pretty;
+  }
+
+  .headline-figure {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 18px;
+    margin: 36px 0 8px;
+  }
+  .headline-figure .n {
+    font-family: var(--serif);
+    font-size: clamp(58px, 11vw, 96px);
+    line-height: .9;
+    font-weight: 700;
+    letter-spacing: -.03em;
+    font-variant-numeric: tabular-nums;
+  }
+  .headline-figure .unit {
+    font-family: var(--serif);
+    font-size: clamp(22px, 4vw, 30px);
+    color: var(--muted);
+  }
+  .headline-note {
+    font-size: 15.5px;
+    color: var(--muted);
+    margin: 0;
+    max-width: 34rem;
+  }
+  .headline-note strong { color: var(--ink); }
+
+  /* Estágio do sistema: onde ele está no arco ideia -> produção. */
+  .stages {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    list-style: none;
+    margin: 32px 0 0;
+    padding: 0;
+    counter-reset: st;
+  }
+  .stages li {
+    counter-increment: st;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 13px 7px 10px;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    background: var(--surface);
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .stages li::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--rule-firm);
+  }
+  .stages li.done { color: var(--muted); border-color: var(--rule-firm); }
+  .stages li.done::before { background: var(--ok); }
+  .stages li.now {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    font-weight: 700;
+  }
+  .stages li.now::before { background: var(--accent); }
+
+  section { padding-top: 56px; }
+
+  h2 {
+    font-family: var(--serif);
+    font-size: 27px;
+    line-height: 1.2;
+    font-weight: 700;
+    letter-spacing: -.01em;
+    text-wrap: balance;
+    margin: 0 0 6px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--rule-firm);
+  }
+
+  h3 {
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 32px 0 10px;
+  }
+  h3.first { margin-top: 0; }
+
+  p { margin: 16px 0; text-wrap: pretty; }
+  p.lead { font-size: 17.5px; }
+
+  a { color: var(--accent); }
+  strong { font-weight: 650; }
+
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  .rail { margin: 32px 0 8px; }
+
+  .rail-track {
+    display: flex;
+    height: 46px;
+    border: 1px solid var(--rule-firm);
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--surface);
+  }
+
+  .seg {
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .02em;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .seg-0 { background: var(--wait-soft); color: var(--muted); border-right: 1px solid var(--rule-firm); }
+  .seg-1 { background: var(--accent-soft); color: var(--accent); }
+
+  .rail-track.thin { height: 30px; margin-top: 8px; }
+  .seg-2 {
+    background: var(--ok-soft);
+    color: var(--ok);
+    border-left: 1px solid var(--ok);
+    border-right: 2px dashed var(--ok);
+    padding: 0 6px;
+  }
+
+  .rail-scale {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--faint);
+    margin-top: 8px;
+    letter-spacing: .02em;
+  }
+
+  .rail-legend { font-size: 14px; color: var(--muted); margin: 14px 0 0; }
+
+  .phases { display: flex; flex-direction: column; margin: 28px 0 0; }
+
+  .phase {
+    display: grid;
+    grid-template-columns: 8.5rem 1fr;
+    gap: 4px 22px;
+    padding: 20px 0;
+    border-top: 1px solid var(--rule);
+  }
+  .phase:last-child { border-bottom: 1px solid var(--rule); }
+
+  .phase-stamp {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--faint);
+    letter-spacing: .02em;
+    padding-top: 3px;
+  }
+  .phase-stamp b {
+    display: block;
+    font-size: 21px;
+    font-weight: 700;
+    color: var(--ink);
+    letter-spacing: -.01em;
+    font-variant-numeric: tabular-nums;
+  }
+  .phase-body h4 {
+    font-family: var(--sans);
+    font-size: 16.5px;
+    font-weight: 650;
+    margin: 0 0 4px;
+  }
+  .phase-body p { margin: 0; font-size: 15px; color: var(--muted); }
+
+  .table-scroll { overflow-x: auto; margin: 24px 0; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 15px;
+    font-variant-numeric: tabular-nums;
+  }
+  caption {
+    caption-side: top;
+    text-align: left;
+    font-size: 13px;
+    color: var(--faint);
+    padding-bottom: 10px;
+    font-family: var(--mono);
+    letter-spacing: .02em;
+  }
+  th {
+    text-align: left;
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--rule-firm);
+    padding: 0 14px 9px 0;
+    white-space: nowrap;
+  }
+  td {
+    padding: 11px 14px 11px 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  td.n, th.n { text-align: right; padding-right: 0; font-family: var(--mono); white-space: nowrap; }
+  tbody tr:last-child td { border-bottom: none; }
+
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 2px;
+    font-weight: 700;
+  }
+  .pill-ok   { background: var(--ok-soft);   color: var(--ok); }
+  .pill-fail { background: var(--fail-soft); color: var(--fail); }
+  .pill-wait { background: var(--wait-soft); color: var(--muted); }
+
+  .scoreboard {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    overflow: hidden;
+    margin: 26px 0;
+  }
+  .mod {
+    background: var(--surface);
+    padding: 12px 14px 12px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14.5px;
+  }
+  .chip {
+    flex: none;
+    width: 4px;
+    align-self: stretch;
+    border-radius: 2px;
+    background: var(--wait);
+  }
+  .mod.is-ok .chip { background: var(--ok); }
+  .mod.is-partial .chip { background: var(--fail); }
+  .mod .tag {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .mod.is-ok .tag { color: var(--ok); font-weight: 700; }
+  .mod.is-partial .tag { color: var(--fail); }
+
+  .log { margin: 26px 0; border-left: 2px solid var(--rule-firm); padding-left: 22px; }
+  .log-entry { padding: 0 0 24px; position: relative; }
+  .log-entry:last-child { padding-bottom: 0; }
+  .log-entry::before {
+    content: "";
+    position: absolute;
+    left: -27px;
+    top: 8px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--paper);
+    border: 2px solid var(--rule-firm);
+  }
+  .log-entry.bad::before  { border-color: var(--fail); background: var(--fail); }
+  .log-entry.good::before { border-color: var(--ok);   background: var(--ok); }
+  .log-date {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .04em;
+    color: var(--faint);
+    display: block;
+    margin-bottom: 3px;
+  }
+  .log-title { font-weight: 650; font-size: 16px; }
+  .log-entry.bad .log-title  { color: var(--fail); }
+  .log-entry.good .log-title { color: var(--ok); }
+  .log-note { margin: 6px 0 0; font-size: 15px; color: var(--muted); }
+  .log-quotes { margin: 8px 0 0; padding: 0; list-style: none; }
+  .log-quotes li {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--muted);
+    padding: 3px 0 3px 16px;
+    position: relative;
+  }
+  .log-quotes li::before { content: "\203A"; position: absolute; left: 0; color: var(--fail); }
+  .log-quotes li.ok { color: var(--ok); }
+  .log-quotes li.ok::before { color: var(--ok); }
+
+  .pull {
+    margin: 34px 0;
+    padding: 24px 26px;
+    background: var(--surface);
+    border: 1px solid var(--rule-firm);
+    border-left: 3px solid var(--accent);
+    border-radius: 3px;
+    box-shadow: var(--shadow);
+  }
+  .pull p { margin: 0; font-family: var(--serif); font-size: 20px; line-height: 1.42; }
+  .pull p + p { margin-top: 12px; }
+  .pull .src {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--faint);
+    margin-top: 14px;
+    letter-spacing: .02em;
+  }
+
+  .findings { counter-reset: f; margin: 26px 0 0; padding: 0; list-style: none; }
+  .findings li {
+    counter-increment: f;
+    display: grid;
+    grid-template-columns: 2.4rem 1fr;
+    gap: 18px;
+    padding: 20px 0;
+    border-top: 1px solid var(--rule);
+  }
+  .findings li:last-child { border-bottom: 1px solid var(--rule); }
+  .findings li::before {
+    content: counter(f, decimal-leading-zero);
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--accent);
+    padding-top: 4px;
+  }
+  .findings h4 {
+    font-family: var(--sans);
+    font-size: 16.5px;
+    font-weight: 650;
+    margin: 0 0 5px;
+    text-wrap: balance;
+  }
+  .findings p { margin: 0; font-size: 15px; color: var(--muted); }
+
+  .assump {
+    background: var(--wait-soft);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 20px 24px;
+    margin: 26px 0;
+  }
+  .assump h3 { margin-top: 0; }
+  .assump ul { margin: 0; padding-left: 20px; font-size: 15px; color: var(--muted); }
+  .assump li { margin: 6px 0; }
+
+  footer {
+    margin-top: 72px;
+    padding-top: 28px;
+    border-top: 2px solid var(--ink);
+    font-size: 14px;
+    color: var(--muted);
+  }
+  footer dl { margin: 18px 0 0; display: grid; grid-template-columns: 1fr; gap: 14px; }
+  footer dt {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--ink);
+    margin-bottom: 3px;
+  }
+  footer dd { margin: 0; font-size: 14.5px; }
+  footer .stamp {
+    margin-top: 26px;
+    color: var(--faint);
+    font-size: 13px;
+    font-family: var(--mono);
+  }
+
+  @media (max-width: 620px) {
+    body { padding: 0 18px 72px; font-size: 16px; }
+    .head { padding-top: 48px; }
+    .phase { grid-template-columns: 1fr; gap: 8px; }
+    .phase-stamp b { display: inline; margin-right: 8px; }
+    .findings li { grid-template-columns: 1.8rem 1fr; gap: 12px; }
+    .seg { font-size: 10.5px; padding: 0 7px; }
+  }
+
+  @media print { body { background: #fff; color: #000; } }
+</style>
+
+<div class="wrap">
+
+  <header class="head">
+    <p class="eyebrow">Sistema Financeiro · Viação Pioneira · 27/03/2026 – 14/08/2026</p>
+    <h1>Da ideia à produção: a linha do tempo real do sistema</h1>
+    <p class="standfirst">
+      Quanto tempo o Sistema Financeiro da Viação Pioneira levou desde a primeira ideia até estar
+      em produção, fase por fase. Nenhum número aqui é estimado: todos saem do repositório, do banco
+      de dados e dos registros de conferência do próprio sistema.
+    </p>
+
+    <div class="headline-figure">
+      <span class="n">140</span>
+      <span class="unit">dias da ideia até hoje</span>
+    </div>
+    <p class="headline-note">
+      <strong>4,6 meses.</strong> 17 módulos integrados ao ERP da empresa,
+      rodando com dado real — com
+      <strong>1 módulo já conferido e assinado pela área de negócio</strong>.
+      O sistema ainda não está em produção plena: a contagem continua.
+    </p>
+
+    <ol class="stages" aria-label="Estágio do sistema">
+      <li class="done"><span>Ideia</span></li>
+      <li class="done"><span>Descoberta</span></li>
+      <li class="done"><span>Construção</span></li>
+      <li class="now"><span>Validação</span></li>
+      <li class=""><span>Produção</span></li>
+    </ol>
+  </header>
+
+  <section>
+    <h2>As três fases, na proporção real</h2>
+
+    <p class="lead">
+      Um sistema não tem uma fase, tem três. Elas custam tempos diferentes e só a do meio é a que
+      normalmente se imagina quando alguém pede um prazo.
+    </p>
+
+    <div class="rail">
+
+      <div class="rail-track">
+        <div class="seg seg-0" style="width:32.9%">Fase 0 · Descoberta &amp; prova &nbsp;46&nbsp;d</div>
+        <div class="seg seg-1" style="width:67.1%">Fase 1 · Construção &nbsp;94&nbsp;d</div>
+      </div>
+      <div class="rail-track thin">
+        <div class="seg seg-spacer" style="width:89.3%"></div>
+        <div class="seg seg-2" style="width:10.7%">Fase 2 &nbsp;15&nbsp;d</div>
+      </div>
+      <div class="rail-scale">
+        <span>27/03/2026</span>
+        <span>12/05/2026</span>
+        <span>14/08/2026 · hoje</span>
+      </div>
+      <p class="rail-legend">
+        A faixa inferior é a validação em campo. Ela começou em 30/07/2026,
+        corre em paralelo ao fim da construção e
+        <strong>ainda não tem data de término definida</strong>.
+      </p>
+    </div>
+
+    <div class="phases">
+      <div class="phase">
+        <div class="phase-stamp"><b>46 d</b>27/03/2026 – 12/05/2026</div>
+        <div class="phase-body">
+          <h4>Fase 0 · Descoberta e prova de conceito</h4>
+          <p>
+            Um MVP descartável em Python (FastAPI, Oracle, modelos de machine learning) construído
+            para descobrir o que a empresa realmente precisava e provar que era viável. Terminou com
+            apresentação à diretoria e aprovação. Nenhuma linha desse código foi para o sistema final —
+            o que sobreviveu foi o escopo validado.
+          </p>
+        </div>
+      </div>
+      <div class="phase">
+        <div class="phase-stamp"><b>94 d</b>12/05/2026 – 14/08/2026</div>
+        <div class="phase-body">
+          <h4>Fase 1 · Construção do sistema definitivo</h4>
+          <p>
+            Reconstrução do zero em outra tecnologia (Node, TypeScript), a partir das anotações já
+            validadas com o negócio. É a fase que produz telas, e a única que costuma ser considerada
+            quando se pede "o prazo".
+          </p>
+        </div>
+      </div>
+      <div class="phase">
+        <div class="phase-stamp"><b>15 d</b>30/07/2026 – em curso</div>
+        <div class="phase-body">
+          <h4>Fase 2 · Validação com quem usa</h4>
+          <p>
+            O financeiro confere número por número contra o ERP e contra o extrato. Aprova ou reprova.
+            É a fase que transforma "o código funciona" em "a empresa pode confiar no número".
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>O que foi construído em 94 dias</h2>
+
+    <div class="table-scroll">
+      <table>
+        <caption>Contagem direta no código-fonte e no banco de dados, em 14/08/2026</caption>
+        <thead>
+          <tr><th>Item</th><th class="n">Quantidade</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Módulos funcionais para o usuário</td><td class="n">17</td></tr>
+          <tr><td>Módulos de API no servidor</td><td class="n">36</td></tr>
+          <tr><td>Telas</td><td class="n">32</td></tr>
+          <tr><td>Tabelas de banco de dados</td><td class="n">68</td></tr>
+          <tr><td>Migrações de banco versionadas</td><td class="n">64</td></tr>
+          <tr><td>Linhas de código</td><td class="n">73.458</td></tr>
+          <tr><td>Linhas de documentação técnica</td><td class="n">12.554</td></tr>
+          <tr><td>Títulos financeiros reais em base</td><td class="n">20.206</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Em ritmo de construção, isso dá <strong>um módulo pronto a cada 6.3 dias</strong>. É um número
+      excelente — e é exatamente o número que engana, porque "pronto" aqui significa apenas que o
+      desenvolvedor terminou.
+    </p>
+  </section>
+
+  <section>
+    <h2>A prova: "pronto" não é "validado"</h2>
+
+    <p class="lead">
+      Contas a Pagar é o módulo mais antigo e mais maduro do sistema. Ele mostra, com data e registro
+      em banco, a distância entre as duas coisas.
+    </p>
+
+    <div class="log">
+
+      <div class="log-entry">
+        <span class="log-date">21 · MAIO · 2026</span>
+        <span class="log-title">Contas a Pagar declarado pronto</span>
+        <p class="log-note">
+          Registrado como "em produção" na documentação do projeto. Sincronizando do ERP, com filtros,
+          listagem, totalizadores e exportação funcionando.
+        </p>
+      </div>
+
+      <div class="log-entry bad">
+        <span class="log-date">30 · JULHO · 2026 &nbsp;·&nbsp; 70 dias depois</span>
+        <span class="log-title">Conferência em /contas-pagar — reprovado 3× no mesmo dia</span>
+        <ul class="log-quotes">
+          <li>"Teste de incosistencia de dados"</li>
+          <li>"Não vieram os valores dos boletos"</li>
+          <li>"Valor total difere"</li>
+        </ul>
+      </div>
+
+      <div class="log-entry good">
+        <span class="log-date">10 · AGOSTO · 2026 &nbsp;·&nbsp; 81 dias depois</span>
+        <span class="log-title">/contas-pagar — validado</span>
+        <ul class="log-quotes">
+          <li class="ok">"Realizado acompanhamento no período de 01 a 10-08 e ok"</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="pull">
+      <p>
+        Entre "o desenvolvedor declarou pronto" e "o usuário assinou embaixo" passaram-se
+        <strong>81 dias</strong> e 2 rodadas de conferência.
+      </p>
+      <p class="src">E foi o módulo que correu melhor.</p>
+    </div>
+
+    <p>
+      Mesmo depois de validado, nos dois dias seguintes ainda foram encontrados dois defeitos reais
+      nesse módulo: uma tela que atribuía o pagamento de R$ 474 mil a uma auxiliar que apenas havia
+      dado baixa no ERP, e 414 pagamentos sem vínculo rastreável com o extrato bancário. Nenhum dos
+      dois quebrava o sistema. Os dois quebrariam uma auditoria.
+    </p>
+  </section>
+
+  <section>
+    <h2>O placar hoje</h2>
+
+    <p>
+      Dos 17 módulos, <strong>15 estão construídos</strong>,
+      2 estão parciais — e
+      <strong class="num">1</strong> passou pela conferência do usuário final.
+    </p>
+
+    <div class="scoreboard">
+      <div class="mod "><span class="chip"></span>Dashboard<span class="tag">A validar</span></div>
+      <div class="mod is-ok"><span class="chip"></span>Contas a Pagar<span class="tag">Validado</span></div>
+      <div class="mod "><span class="chip"></span>Recebíveis<span class="tag">A validar</span></div>
+      <div class="mod "><span class="chip"></span>Recebíveis GDF<span class="tag">A validar</span></div>
+      <div class="mod "><span class="chip"></span>Conciliação Bancária<span class="tag">A validar</span></div>
+      <div class="mod "><span class="chip"></span>Tributos<span class="tag">A validar</span></div>
+      <div class="mod "><span class="chip"></span>Depreciação<span class="tag">A validar</span></div>
+      <div class="mod "><span class="chip"></span>Fluxo de Caixa<span class="tag">A validar</span></div>
+      <div class="mod "><span class="chip"></span>Orçamento<span class="tag">A validar</span></div>
+      <div class="mod "><span class="chip"></span>DRE<span class="tag">A validar</span></div>
+      <div class="mod "><span class="chip"></span>Painel CFO<span class="tag">A validar</span></div>
+      <div class="mod "><span class="chip"></span>Auditoria<span class="tag">A validar</span></div>
+      <div class="mod "><span class="chip"></span>Encargos &amp; Benefícios<span class="tag">A validar</span></div>
+      <div class="mod "><span class="chip"></span>Custo por Setor<span class="tag">A validar</span></div>
+      <div class="mod "><span class="chip"></span>Usuários<span class="tag">A validar</span></div>
+      <div class="mod is-partial"><span class="chip"></span>Parâmetros<span class="tag">Parcial</span></div>
+      <div class="mod is-partial"><span class="chip"></span>Integrações<span class="tag">Parcial</span></div>
+    </div>
+
+    <p>
+      Em porcentagem de código, o sistema está perto do fim. Em porcentagem de confiança auditável,
+      está em <strong>6%</strong>.
+    </p>
+  </section>
+
+  <section>
+    <h2>Histórico de conferência</h2>
+
+    <p>
+      Esta seção cresce sozinha: cada aprovação ou reprovação registrada no sistema aparece aqui na
+      próxima geração do documento.
+    </p>
+
+    <div class="table-scroll">
+      <table>
+        <caption>Todos os registros de audit.validacao_funcionalidade, sem edição</caption>
+        <thead>
+          <tr><th class="n">Data</th><th>Funcionalidade</th><th>Resultado</th><th>Observação de quem conferiu</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="n">30/07/2026</td>
+            <td>/contas-pagar</td>
+            <td><span class="pill pill-fail">reprovado</span></td>
+            <td>Teste de incosistencia de dados</td>
+          </tr>
+          <tr>
+            <td class="n">30/07/2026</td>
+            <td>/contas-pagar</td>
+            <td><span class="pill pill-fail">reprovado</span></td>
+            <td>Não vieram os valores dos boletos</td>
+          </tr>
+          <tr>
+            <td class="n">30/07/2026</td>
+            <td>/contas-pagar</td>
+            <td><span class="pill pill-fail">reprovado</span></td>
+            <td>Valor total difere</td>
+          </tr>
+          <tr>
+            <td class="n">10/08/2026</td>
+            <td>/contas-pagar</td>
+            <td><span class="pill pill-ok">validado</span></td>
+            <td>Realizado acompanhamento no período de 01 a 10-08 e ok</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Quanto falta</h2>
+
+    <p>
+      Esta é a única projeção do documento — tudo acima é medição. A aritmética usa
+      o único ciclo de validação já concluído como referência.
+    </p>
+
+    <div class="table-scroll">
+      <table>
+        <caption>Projeção a partir dos ciclos reais de validação</caption>
+        <thead>
+          <tr><th>Cenário</th><th class="n">Dias</th><th class="n">Equivale a</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Financeiro confere <strong>1 módulo por vez</strong></td>
+            <td class="n">176</td>
+            <td class="n">5,8 meses</td>
+          </tr>
+          <tr>
+            <td>Financeiro confere <strong>2 módulos em paralelo</strong></td>
+            <td class="n">88</td>
+            <td class="n">2,9 meses</td>
+          </tr>
+          <tr>
+            <td><strong>Total do projeto</strong> até sistema validado</td>
+            <td class="n">228 – 316</td>
+            <td class="n">7,5 meses – 10,4 meses</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="assump">
+      <h3>Premissas desta projeção</h3>
+      <ul>
+        <li>16 módulos ainda a validar.</li>
+        <li>Cada um consome cerca de 11 dias de conferência ativa, como consumiram os ciclos já fechados.</li>
+        <li>Cada reprovação gera correção e nova rodada.</li>
+        <li>O time financeiro não é dedicado ao projeto: confere entre as próprias tarefas.</li>
+        <li>Não estão previstos módulos novos, mudanças de escopo nem correções pós-validação.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>O que este caso permite afirmar</h2>
+
+    <ol class="findings">
+      <li>
+        <div>
+          <h4>Escrever o código é a parte rápida e a mais previsível</h4>
+          <p>
+            Um módulo a cada 6.3 dias, sustentado por 94 dias seguidos. Se o prazo
+            dependesse só de programar, este sistema estaria entregue há meses.
+          </p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h4>O prazo real é ditado por quem confere, não por quem programa</h4>
+          <p>
+            Contas a Pagar ficou 70 dias parado esperando a primeira conferência.
+            Não foi falta de desenvolvimento — foi falta de agenda de quem precisava olhar.
+          </p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h4>"Pronto" declarado por quem desenvolve não é evidência</h4>
+          <p>
+            O módulo passou 81 dias rotulado como pronto carregando defeitos que só apareceram
+            quando alguém do financeiro confere contra o ERP. Software sem conferência é hipótese.
+          </p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h4>Descoberta é trabalho, não atraso</h4>
+          <p>
+            Os 46 dias da fase 0 parecem tempo perdido: o código foi jogado fora. Foram eles que
+            permitiram que 8 módulos entrassem em produção 9 dias após o início da construção,
+            porque o escopo já estava discutido e aprovado.
+          </p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h4>Um prazo sem agenda reservada do time de negócio é um prazo que não se cumpre</h4>
+          <p>
+            Prometer um sistema financeiro em dois meses é prometer, na prática, metade da construção
+            e nenhuma validação. O que seria entregue no prazo é um sistema que ninguém conferiu.
+          </p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Referência para a próxima estimativa</h2>
+
+    <p class="lead">
+      Para um sistema de porte equivalente — integrado ao ERP, com dado financeiro auditável, feito
+      por uma pessoa — este caso sugere a seguinte distribuição:
+    </p>
+
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Fase</th><th class="n">Proporção do prazo</th><th>O que entrega</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Descoberta e prova de conceito</td><td class="n">15%</td><td>Escopo validado com o negócio</td></tr>
+          <tr><td>Construção</td><td class="n">30%</td><td>Sistema funcionando com dado real</td></tr>
+          <tr><td>Validação e correção</td><td class="n">60%</td><td>Números em que a empresa pode confiar</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="pull">
+      <p>
+        A conta que importa não é "em quanto tempo fica pronto".
+        É <strong>"em quanto tempo alguém assina embaixo do número"</strong>.
+      </p>
+    </div>
+  </section>
+
+  <footer>
+    <h3 class="first">Como cada número foi apurado</h3>
+    <dl>
+      <dt>Datas da fase 0</dt>
+      <dd>
+        Carimbo de data dos arquivos do repositório do MVP (<span class="num">Pioneira Insights</span>):
+        primeiro arquivo em 27/03/2026, documento de arquitetura em 28/03/2026,
+        apresentação ao financeiro em 12/05/2026.
+      </dd>
+
+      <dt>Datas da fase 1</dt>
+      <dd>
+        Histórico do Git do repositório atual (commit inicial em 12/05/2026 às 17:12) cruzado
+        com o carimbo dos arquivos de escopo, escritos entre 16:36 e 16:55 do mesmo dia.
+      </dd>
+
+      <dt>Registros de validação</dt>
+      <dd>
+        Tabela <span class="num">audit.validacao_funcionalidade</span> do banco de produção.
+        As 4 linhas existentes estão transcritas literalmente neste documento, sem edição.
+      </dd>
+
+      <dt>Inventário</dt>
+      <dd>
+        Contagem direta de arquivos e linhas no código-fonte, e consulta ao catálogo de tabelas do
+        PostgreSQL. Nenhum número foi estimado.
+      </dd>
+
+      <dt>Projeção</dt>
+      <dd>
+        Única extrapolação do documento, marcada como tal. Aritmética simples sobre os ciclos de
+        validação já concluídos, com premissas declaradas.
+      </dd>
+
+      <dt>Atualização</dt>
+      <dd>
+        Este documento é gerado por
+        <span class="num">apps/FinancasBackend/src/scripts/gerar-relatorio-prazo.ts</span>, que lê o banco
+        a cada execução. Conforme o financeiro validar mais funcionalidades, os números, o placar e o
+        histórico mudam sozinhos — basta gerar de novo e republicar.
+      </dd>
+    </dl>
+
+    <p class="stamp">
+      Sistema Financeiro · Viação Pioneira · gerado em 14/08/2026, 11:05:48
+    </p>
+  </footer>
+
+</div>

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { IsNull } from 'typeorm';
 import { GlobusCrcStage } from '@/entities/globus-crc-stage.entity.js';
 import { GlobusCrcClienteStage } from '@/entities/globus-crc-cliente-stage.entity.js';
 import { dataIsoSpOuNull } from '@/shared/utils/datetime.js';
@@ -7,6 +8,11 @@ interface ETLResult {
   clientesProcessados: number;
   titulosProcessados: number;
   itensProcessados: number;
+  /** Linhas que FALHARAM ao gravar (lote atômico caiu). Diagnóstico. */
+  clientesComErro: number;
+  titulosComErro: number;
+  /** Detalhe do 1º erro de gravação, pra expor na UI (não deixa falhar em silêncio). */
+  erroDetalhe: string | null;
   duracaoMs: number;
 }
 
@@ -149,12 +155,15 @@ export function buildCrcEtl(fastify: FastifyInstance) {
 
       // ============ 1) CLIENTES ============
       const clientesPendentes = await clienteStageRepo.find({
-        where: { processadoEm: null as unknown as Date },
+        where: { processadoEm: IsNull() },
         take: 20000,
       });
       log.info({ pendentes: clientesPendentes.length }, '[etl:crc] processando clientes…');
 
       let clientesOk = 0;
+      let clientesComErro = 0;
+      let titulosComErro = 0;
+      let erroDetalhe: string | null = null;
       for (const lote of chunk(clientesPendentes, BATCH)) {
         const valores: string[] = [];
         const params: unknown[] = [];
@@ -232,6 +241,8 @@ export function buildCrcEtl(fastify: FastifyInstance) {
           clientesOk += lote.length;
         } catch (err) {
           const e = err as Error & { code?: string; detail?: string };
+          clientesComErro += lote.length;
+          erroDetalhe = erroDetalhe ?? e.detail ?? e.message ?? null;
           log.error({ err, code: e.code, detail: e.detail, loteSize: lote.length }, '[etl:crc] FALHA lote cliente');
         }
       }
@@ -242,7 +253,7 @@ export function buildCrcEtl(fastify: FastifyInstance) {
       let chunkLido: number;
       do {
         const pendentes = await stageRepo.find({
-          where: { processadoEm: null as unknown as Date },
+          where: { processadoEm: IsNull() },
           take: 2000,
         });
         chunkLido = pendentes.length;
@@ -481,6 +492,8 @@ export function buildCrcEtl(fastify: FastifyInstance) {
               .execute();
           } catch (err) {
             const e = err as Error & { code?: string; detail?: string };
+            titulosComErro += lote.length;
+            erroDetalhe = erroDetalhe ?? e.detail ?? e.message ?? null;
             log.error({ err, code: e.code, detail: e.detail, loteSize: lote.length }, '[etl:crc] FALHA lote título');
           }
         }
@@ -495,6 +508,9 @@ export function buildCrcEtl(fastify: FastifyInstance) {
         clientesProcessados: clientesOk,
         titulosProcessados: titulosOk,
         itensProcessados: itensOk,
+        clientesComErro,
+        titulosComErro,
+        erroDetalhe,
         duracaoMs,
       };
     },

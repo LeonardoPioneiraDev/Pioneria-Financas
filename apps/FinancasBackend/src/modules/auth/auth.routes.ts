@@ -49,7 +49,7 @@ export const authModule: FastifyPluginAsyncTypebox = async (fastify) => {
       preHandler: [fastify.authRequired],
       schema: {
         tags: ['auth'],
-        summary: 'Encerra sessao revogando o refresh token',
+        summary: 'Encerra sessão revogando o refresh token',
         body: Type.Optional(RefreshTokenPayloadSchema),
         response: { 204: Type.Null() },
         security: [{ bearerAuth: [] }],
@@ -72,7 +72,7 @@ export const authModule: FastifyPluginAsyncTypebox = async (fastify) => {
       preHandler: [fastify.authRequired],
       schema: {
         tags: ['auth'],
-        summary: 'Usuario autenticado atual',
+        summary: 'Usuário autenticado atual',
         response: { 200: AuthenticatedUserSchema },
         security: [{ bearerAuth: [] }],
       },

@@ -10,6 +10,12 @@ import {
   SyncFlpBodySchema,
   SyncFlpResponseSchema,
   DiagnosticoFlpResponseSchema,
+  ComparativoQuerySchema,
+  ComparativoResponseSchema,
+  FeriasDecimoQuerySchema,
+  FeriasDecimoResponseSchema,
+  CustoEncargosQuerySchema,
+  CustoEncargosResponseSchema,
 } from '@pioneira/shared/schemas/folha-detalhe';
 import { buildFolhaDetalheService } from './folha-detalhe.service.js';
 
@@ -47,12 +53,39 @@ export const folhaDetalheModule: FastifyPluginAsyncTypebox = async (fastify) => 
   );
 
   fastify.get(
-    '/contra-cheque/:codFunc',
+    '/export',
     {
       preHandler: [fastify.requireRole('admin', 'cfo', 'controller', 'rh')],
       schema: {
         tags: ['folha-detalhe'],
-        summary: 'Contra-cheque (holerite) individual do funcionário',
+        summary: 'Exporta funcionários (mesmos filtros) em Excel + registra na auditoria (LGPD)',
+        querystring: FuncionariosQuerySchema,
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (req, reply) => {
+      const { buffer, filename } = await service.exportarFuncionarios(
+        req.query,
+        req.user.sub,
+        req.ip ?? null,
+        req.headers['user-agent'] ?? null,
+      );
+      reply
+        .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        .header('Content-Disposition', `attachment; filename="${filename}"`);
+      return reply.send(buffer);
+    },
+  );
+
+  fastify.get(
+    '/contra-cheque/:codFunc',
+    {
+      // Dado pessoal (LGPD): exige a permissão 'ver_contracheque' (admin sempre passa),
+      // separada do papel — quem vê o agregado da folha NÃO abre o holerite individual.
+      preHandler: [fastify.requirePermissao('ver_contracheque')],
+      schema: {
+        tags: ['folha-detalhe'],
+        summary: 'Contra-cheque (holerite) individual do funcionário — requer permissão ver_contracheque',
         params: Type.Object({ codFunc: Type.String({ minLength: 1, maxLength: 40 }) }),
         querystring: ContraChequeQuerySchema,
         response: { 200: ContraChequeResponseSchema },
@@ -84,6 +117,51 @@ export const folhaDetalheModule: FastifyPluginAsyncTypebox = async (fastify) => 
   );
 
   fastify.get(
+    '/comparativo',
+    {
+      preHandler: [fastify.requireRole('admin', 'cfo', 'controller', 'rh')],
+      schema: {
+        tags: ['folha-detalhe'],
+        summary: 'Comparativo da competência vs mês anterior, por setor',
+        querystring: ComparativoQuerySchema,
+        response: { 200: ComparativoResponseSchema },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (req) => service.comparativo(req.query),
+  );
+
+  fastify.get(
+    '/ferias-decimo',
+    {
+      preHandler: [fastify.requireRole('admin', 'cfo', 'controller', 'rh')],
+      schema: {
+        tags: ['folha-detalhe'],
+        summary: 'Férias e 13º realizado (pago) no ano — por mês, verba e setor',
+        querystring: FeriasDecimoQuerySchema,
+        response: { 200: FeriasDecimoResponseSchema },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (req) => service.feriasDecimo(req.query),
+  );
+
+  fastify.get(
+    '/custo-encargos',
+    {
+      preHandler: [fastify.requireRole('admin', 'cfo', 'controller', 'rh')],
+      schema: {
+        tags: ['folha-detalhe'],
+        summary: 'Custo total por setor com encargos (bruto + FGTS + INSS patronal estimado)',
+        querystring: CustoEncargosQuerySchema,
+        response: { 200: CustoEncargosResponseSchema },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (req) => service.custoComEncargos(req.query),
+  );
+
+  fastify.get(
     '/diagnostico',
     {
       preHandler: [fastify.requireRole('admin', 'cfo', 'controller', 'rh')],
@@ -100,7 +178,9 @@ export const folhaDetalheModule: FastifyPluginAsyncTypebox = async (fastify) => 
   fastify.post(
     '/sync',
     {
-      preHandler: [fastify.requireRole('admin', 'cfo', 'controller', 'rh')],
+      // TEMPORÁRIO (fase de desenvolvimento/validação): liberado pra qualquer usuário logado.
+      // Reverter para fastify.requireAdmin antes de produção.
+      preHandler: [fastify.authRequired],
       schema: {
         tags: ['folha-detalhe'],
         summary: 'Sincroniza FLP do Globus (funcionários + eventos + ficha) e roda ETL',

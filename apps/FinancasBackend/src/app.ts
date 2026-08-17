@@ -14,11 +14,15 @@ import { emailPlugin } from '@/plugins/email.js';
 import { oraclePlugin } from '@/plugins/oracle.js';
 import { horariosClientPlugin } from '@/plugins/horarios-client.js';
 import { requestMetricsPlugin } from '@/plugins/request-metrics.js';
+import { syncSchedulerPlugin } from '@/plugins/sync-scheduler.js';
+import { auditoriaPlugin } from '@/plugins/auditoria.js';
 import { healthModule } from '@/modules/health/health.routes.js';
 import { statusModule } from '@/modules/status/status.routes.js';
 import { authModule } from '@/modules/auth/auth.routes.js';
 import { passwordsModule } from '@/modules/passwords/passwords.routes.js';
 import { usersModule } from '@/modules/users/users.routes.js';
+import { validacoesModule } from '@/modules/validacoes/validacoes.routes.js';
+import { notificacoesModule } from '@/modules/notificacoes/notificacoes.routes.js';
 import { metricsModule } from '@/modules/metrics/metrics.routes.js';
 import { globusModule } from '@/modules/globus/globus.routes.js';
 import { contasPagarModule } from '@/modules/contas-pagar/contas-pagar.routes.js';
@@ -39,8 +43,15 @@ import { tributosModule } from '@/modules/tributos/tributos.routes.js';
 import { recebiveisModule } from '@/modules/recebiveis/recebiveis.routes.js';
 import { reembolsosModule } from '@/modules/reembolsos/reembolsos.routes.js';
 import { depreciacaoModule } from '@/modules/depreciacao/depreciacao.routes.js';
+import { dreModule } from '@/modules/dre/dre.routes.js';
 import { orcamentoModule } from '@/modules/orcamento/orcamento.routes.js';
 import { perguntasModule } from '@/modules/perguntas/perguntas.routes.js';
+import { painelCfoModule } from '@/modules/painel-cfo/painel-cfo.routes.js';
+import { syncAgendamentoModule } from '@/modules/sync-agendamento/sync-agendamento.routes.js';
+import { receitaTdmaxModule } from '@/modules/receita-tdmax/receita-tdmax.routes.js';
+import { parametrosModule } from '@/modules/parametros/parametros.routes.js';
+import { feriadosModule } from '@/modules/feriados/feriados.routes.js';
+import { relatorioPrazoModule } from '@/modules/relatorio-prazo/relatorio-prazo.routes.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -123,12 +134,16 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(oraclePlugin);
   await app.register(horariosClientPlugin);
   await app.register(requestMetricsPlugin);
+  await app.register(syncSchedulerPlugin);
+  await app.register(auditoriaPlugin);
 
   await app.register(statusModule);
   await app.register(healthModule, { prefix: '/health' });
   await app.register(authModule, { prefix: '/api/auth' });
   await app.register(passwordsModule, { prefix: '/api/passwords' });
   await app.register(usersModule, { prefix: '/api/users' });
+  await app.register(validacoesModule, { prefix: '/api/validacoes' });
+  await app.register(notificacoesModule, { prefix: '/api/notificacoes' });
   await app.register(metricsModule, { prefix: '/api/metrics' });
   await app.register(globusModule, { prefix: '/api/globus' });
   await app.register(contasPagarModule, { prefix: '/api/contas-pagar' });
@@ -149,8 +164,15 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(recebiveisModule, { prefix: '/api/recebiveis' });
   await app.register(reembolsosModule, { prefix: '/api/reembolsos' });
   await app.register(depreciacaoModule, { prefix: '/api/depreciacao' });
+  await app.register(dreModule, { prefix: '/api/dre' });
   await app.register(orcamentoModule, { prefix: '/api/orcamento' });
   await app.register(perguntasModule, { prefix: '/api/perguntas' });
+  await app.register(painelCfoModule, { prefix: '/api/painel-cfo' });
+  await app.register(syncAgendamentoModule, { prefix: '/api/admin/sync-agendamento' });
+  await app.register(receitaTdmaxModule, { prefix: '/api/receita-tdmax' });
+  await app.register(parametrosModule, { prefix: '/api/parametros' });
+  await app.register(feriadosModule, { prefix: '/api/feriados' });
+  await app.register(relatorioPrazoModule, { prefix: '/api/relatorio-prazo' });
 
   app.setErrorHandler((err, req, reply) => {
     req.log.error({ err, reqId: req.id }, 'Erro nao tratado');

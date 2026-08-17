@@ -74,7 +74,7 @@ export default function BoletosPixPage() {
   function copy(texto: string | null) {
     if (!texto) return;
     void navigator.clipboard.writeText(texto);
-    toast.success('Copiado pra area de transferencia');
+    toast.success('Copiado pra área de transferência');
   }
 
   const itens = elegiveis.data?.itens ?? [];
@@ -92,7 +92,7 @@ export default function BoletosPixPage() {
           Boletos e PIX
         </h1>
         <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">
-          Emita boleto bancario ou PIX para cada titulo a receber.
+          Emita boleto bancário ou PIX para cada título a receber.
         </p>
       </div>
 
@@ -100,10 +100,10 @@ export default function BoletosPixPage() {
         <div className="flex items-start gap-3">
           <Info className="h-5 w-5 text-amber-700 dark:text-amber-300 shrink-0 mt-0.5" />
           <div className="text-sm text-gray-700 dark:text-gray-200">
-            <strong className="text-amber-800 dark:text-amber-200">Versao em validacao com financeiro:</strong>{' '}
-            geracao MOCK — linha digitavel e QR PIX gerados sao DEMONSTRATIVOS (nao escaneaveis).
-            Quando confirmar com financeiro quais bancos usam (Itau, Bradesco, BB, Santander) e credenciais
-            de API estiverem disponiveis, substituimos por chamadas reais.
+            <strong className="text-amber-800 dark:text-amber-200">Versão em validação com financeiro:</strong>{' '}
+            geração MOCK — linha digitável e QR PIX gerados são DEMONSTRATIVOS (não escaneáveis).
+            Quando confirmar com financeiro quais bancos usam (Itaú, Bradesco, BB, Santander) e credenciais
+            de API estiverem disponíveis, substituímos por chamadas reais.
           </div>
         </div>
       </Card>
@@ -111,7 +111,7 @@ export default function BoletosPixPage() {
       <Tabs value={aba} onValueChange={(v) => setAba(v as 'elegiveis' | 'emitidos')}>
         <TabsList>
           <TabsTrigger value="elegiveis" icon={<FileText className="h-3.5 w-3.5" />}>
-            Titulos elegiveis ({itens.length})
+            Títulos elegíveis ({itens.length})
           </TabsTrigger>
           <TabsTrigger value="emitidos" icon={<Receipt className="h-3.5 w-3.5" />}>
             Emitidos ({emitidosLista.length})
@@ -135,7 +135,7 @@ export default function BoletosPixPage() {
               ))}
             </select>
             <p className="text-[10px] text-gray-500 mt-2">
-              PIX usa chave da Pioneira (configurada no servidor) — nao depende de banco selecionado.
+              PIX usa chave da Pioneira (configurada no servidor) — não depende de banco selecionado.
             </p>
           </Card>
 
@@ -145,7 +145,7 @@ export default function BoletosPixPage() {
           {!elegiveis.isLoading && itens.length === 0 && (
             <Card className="p-10 text-center space-y-3">
               <FileText className="h-10 w-10 mx-auto text-gray-400" />
-              <h3 className="text-lg font-semibold">Sem titulos elegiveis</h3>
+              <h3 className="text-lg font-semibold">Sem títulos elegíveis</h3>
               <p className="text-sm text-gray-500">
                 Apenas CRs com status &quot;aberto&quot; ou &quot;renegociado&quot; aparecem aqui.
               </p>
@@ -234,7 +234,7 @@ export default function BoletosPixPage() {
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 {exibirEmitido.tipo === 'boleto' ? <FileText className="h-5 w-5 text-blue-600" /> : <QrCode className="h-5 w-5 text-emerald-600" />}
-                {exibirEmitido.tipo === 'boleto' ? 'Boleto Bancario' : 'PIX'}
+                {exibirEmitido.tipo === 'boleto' ? 'Boleto Bancário' : 'PIX'}
                 <Badge variant={exibirEmitido.modo === 'mock' ? 'warning' : 'success'} className="text-[9px] ml-2">
                   {exibirEmitido.modo}
                 </Badge>
@@ -249,7 +249,7 @@ export default function BoletosPixPage() {
               {exibirEmitido.tipo === 'boleto' && (
                 <>
                   <div>
-                    <p className="text-xs font-bold uppercase text-gray-500 mb-1">Linha digitavel</p>
+                    <p className="text-xs font-bold uppercase text-gray-500 mb-1">Linha digitável</p>
                     <div className="flex gap-2">
                       <code className="flex-1 text-xs font-mono p-2 rounded bg-gray-100 dark:bg-gray-900 break-all">
                         {exibirEmitido.linhaDigitavel}
@@ -260,11 +260,11 @@ export default function BoletosPixPage() {
                     </div>
                   </div>
                   <div>
-                    <p className="text-xs font-bold uppercase text-gray-500 mb-1">Nosso numero</p>
+                    <p className="text-xs font-bold uppercase text-gray-500 mb-1">Nosso número</p>
                     <code className="text-xs font-mono">{exibirEmitido.nossoNumero}</code>
                   </div>
                   <div>
-                    <p className="text-xs font-bold uppercase text-gray-500 mb-1">Codigo de barras</p>
+                    <p className="text-xs font-bold uppercase text-gray-500 mb-1">Código de barras</p>
                     <code className="text-xs font-mono break-all">{exibirEmitido.codigoBarras}</code>
                   </div>
                 </>

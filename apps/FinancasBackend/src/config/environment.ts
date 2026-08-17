@@ -79,6 +79,8 @@ export interface EnvironmentConfig {
     baseUrl: string;
     /** API Key no formato tp_<prefix>.<secret>. NUNCA commitar. */
     apiKey: string;
+    /** API Key da integracao Receita/Bilhetagem TD Max (escopo receita:read). */
+    receitaApiKey: string;
     /** Timeout por request (ms). */
     timeoutMs: number;
     /** Numero maximo de tentativas com backoff exponencial. */
@@ -175,7 +177,9 @@ export function loadEnvironment(): EnvironmentConfig {
         .filter(Boolean),
     },
     metrics: {
-      excludedPaths: optional('METRICS_EXCLUDED_PATHS', '/health,/docs').split(',').map((p) => p.trim()).filter(Boolean),
+      // /api/metrics inclui o proprio dashboard e o page-view — excluidos pra nao
+      // poluir request_logs (nem gerar recursao de metrica sobre a propria metrica).
+      excludedPaths: optional('METRICS_EXCLUDED_PATHS', '/health,/docs,/api/metrics').split(',').map((p) => p.trim()).filter(Boolean),
     },
     oracle: {
       enabled: asBool(optional('ORACLE_ENABLED', 'false')),
@@ -200,6 +204,7 @@ export function loadEnvironment(): EnvironmentConfig {
       enabled: asBool(optional('HORARIOS_ENABLED', 'false')),
       baseUrl: optional('HORARIOS_API_URL', 'https://horarios.vpioneira.com.br'),
       apiKey: optional('HORARIOS_API_KEY', ''),
+      receitaApiKey: optional('RECEITA_TDMAX_API_KEY', ''),
       timeoutMs: asInt(optional('HORARIOS_TIMEOUT_MS', '30000'), 'HORARIOS_TIMEOUT_MS'),
       maxRetries: asInt(optional('HORARIOS_MAX_RETRIES', '3'), 'HORARIOS_MAX_RETRIES'),
       retryDelayMs: asInt(optional('HORARIOS_RETRY_DELAY_MS', '2000'), 'HORARIOS_RETRY_DELAY_MS'),

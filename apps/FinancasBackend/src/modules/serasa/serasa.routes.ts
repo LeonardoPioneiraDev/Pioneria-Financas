@@ -22,14 +22,21 @@ export const serasaModule: FastifyPluginAsyncTypebox = async (fastify) => {
       preHandler: [authW],
       schema: {
         tags: ['serasa'],
-        summary: 'Consulta score + restricoes de um cliente (MOCK)',
+        summary: 'Consulta score + restrições de um cliente (MOCK)',
         body: ConsultarSerasaBodySchema,
         response: { 200: SerasaConsultaResponseSchema },
         security: [{ bearerAuth: [] }],
       },
       config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
     },
-    async (req) => service.consultar({ body: req.body, usuarioId: req.user.sub }),
+    // MOCK DESATIVADO (a pedido): não gerar score/restrição fake. Reativar quando
+    // houver contrato + credenciais SERASA reais. Código original preservado:
+    // async (req) => service.consultar({ body: req.body, usuarioId: req.user.sub }),
+    async () => {
+      throw fastify.httpErrors.notImplemented(
+        'Consulta SERASA não configurada: integração real ausente (modo mock desativado).',
+      );
+    },
   );
 
   fastify.get(
@@ -38,7 +45,7 @@ export const serasaModule: FastifyPluginAsyncTypebox = async (fastify) => {
       preHandler: [authL],
       schema: {
         tags: ['serasa'],
-        summary: 'Historico de consultas (ultimas 50)',
+        summary: 'Histórico de consultas (últimas 50)',
         response: { 200: ConsultasListResponseSchema },
         security: [{ bearerAuth: [] }],
       },
@@ -52,7 +59,7 @@ export const serasaModule: FastifyPluginAsyncTypebox = async (fastify) => {
       preHandler: [authL],
       schema: {
         tags: ['serasa'],
-        summary: 'CRs candidatos a negativacao (vencidos ha mais de 30 dias, sem negativacao ativa)',
+        summary: 'CRs candidatos a negativação (vencidos há mais de 30 dias, sem negativação ativa)',
         response: { 200: CandidatosResponseSchema },
         security: [{ bearerAuth: [] }],
       },
@@ -73,7 +80,14 @@ export const serasaModule: FastifyPluginAsyncTypebox = async (fastify) => {
       },
       config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
     },
-    async (req) => service.negativar({ body: req.body, usuarioId: req.user.sub }),
+    // MOCK DESATIVADO (a pedido): não registrar negativação fake. Reativar quando
+    // houver contrato + credenciais SERASA reais. Código original preservado:
+    // async (req) => service.negativar({ body: req.body, usuarioId: req.user.sub }),
+    async () => {
+      throw fastify.httpErrors.notImplemented(
+        'Negativação SERASA não configurada: integração real ausente (modo mock desativado).',
+      );
+    },
   );
 
   fastify.post(
@@ -82,7 +96,7 @@ export const serasaModule: FastifyPluginAsyncTypebox = async (fastify) => {
       preHandler: [authW],
       schema: {
         tags: ['serasa'],
-        summary: 'Baixa negativacao (titulo foi quitado)',
+        summary: 'Baixa negativação (título foi quitado)',
         params: Type.Object({ id: Type.String({ format: 'uuid' }) }),
         response: { 200: SerasaNegativacaoSchema },
         security: [{ bearerAuth: [] }],
@@ -97,7 +111,7 @@ export const serasaModule: FastifyPluginAsyncTypebox = async (fastify) => {
       preHandler: [authL],
       schema: {
         tags: ['serasa'],
-        summary: 'Negativacoes ativas e historicas',
+        summary: 'Negativações ativas e históricas',
         response: { 200: NegativacoesListResponseSchema },
         security: [{ bearerAuth: [] }],
       },

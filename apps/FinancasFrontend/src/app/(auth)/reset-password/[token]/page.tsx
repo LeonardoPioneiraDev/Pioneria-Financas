@@ -20,14 +20,14 @@ const schema = z
     novaSenha: z
       .string()
       .min(8, 'Senha precisa ter 8+ caracteres')
-      .regex(/[a-z]/, 'Senha precisa ter letra minuscula')
-      .regex(/[A-Z]/, 'Senha precisa ter letra maiuscula')
-      .regex(/\d/, 'Senha precisa ter um numero'),
+      .regex(/[a-z]/, 'Senha precisa ter letra minúscula')
+      .regex(/[A-Z]/, 'Senha precisa ter letra maiúscula')
+      .regex(/\d/, 'Senha precisa ter um número'),
     confirmar: z.string(),
   })
   .refine((data) => data.novaSenha === data.confirmar, {
     path: ['confirmar'],
-    message: 'As senhas nao coincidem',
+    message: 'As senhas não coincidem',
   });
 
 type FormValues = z.infer<typeof schema>;
@@ -64,7 +64,7 @@ export default function ResetPasswordPage() {
 
   if (verificando) {
     return (
-      <AuthShell titulo="Verificando" subtitulo="Validando seu link de recuperacao">
+      <AuthShell titulo="Verificando" subtitulo="Validando seu link de recuperação">
         <div className="flex justify-center py-6">
           <div className="animate-spin rounded-full h-12 w-12 border-4 border-transparent border-t-[#e6cd4a] dark:border-t-yellow-400" />
         </div>
@@ -74,13 +74,13 @@ export default function ResetPasswordPage() {
 
   if (!validacao?.valido) {
     return (
-      <AuthShell titulo="Link invalido" subtitulo="Este link expirou ou ja foi utilizado">
+      <AuthShell titulo="Link inválido" subtitulo="Este link expirou ou já foi utilizado">
         <Alert className="mb-6 border-red-200 dark:border-red-800/50 bg-red-50 dark:bg-red-900/20">
           <AlertIcon />
           <div>
-            <AlertTitle className="text-red-800 dark:text-red-300">Link nao pode ser usado</AlertTitle>
+            <AlertTitle className="text-red-800 dark:text-red-300">Link não pode ser usado</AlertTitle>
             <AlertDescription className="text-red-700 dark:text-red-400">
-              Solicite uma nova recuperacao para receber um link valido.
+              Solicite uma nova recuperação para receber um link válido.
             </AlertDescription>
           </div>
         </Alert>
@@ -107,7 +107,7 @@ export default function ResetPasswordPage() {
           <div>
             <AlertTitle className="text-emerald-800 dark:text-emerald-300">Tudo certo</AlertTitle>
             <AlertDescription className="text-emerald-700 dark:text-emerald-400">
-              Sua senha foi atualizada. Voce ja pode entrar com a nova credencial.
+              Sua senha foi atualizada. Você já pode entrar com a nova credencial.
             </AlertDescription>
           </div>
         </Alert>
@@ -129,7 +129,7 @@ export default function ResetPasswordPage() {
       <form onSubmit={onSubmit} className="space-y-5">
         <div className="space-y-2">
           <Label htmlFor="novaSenha">Nova senha</Label>
-          <PasswordInput id="novaSenha" autoComplete="new-password" placeholder="Minimo 8 caracteres, com letra e numero" {...form.register('novaSenha')} />
+          <PasswordInput id="novaSenha" autoComplete="new-password" placeholder="Mínimo 8 caracteres, com letra e número" {...form.register('novaSenha')} />
           {form.formState.errors.novaSenha && (
             <p className="text-xs text-red-600 dark:text-red-400">{form.formState.errors.novaSenha.message}</p>
           )}

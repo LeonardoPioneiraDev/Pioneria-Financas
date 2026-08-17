@@ -35,7 +35,15 @@ export interface FiltrosCpValues {
   setores: string[];
   valorMinBrl: string;
   valorMaxBrl: string;
+  /** Número da remessa enviada ao banco (busca por "contém"). */
+  remessa: string;
   somenteVencidos: boolean;
+  /** Filtro por substituição (SFN-48): 'todos' | 'validos' (pagos de verdade) | 'substituidos'. */
+  substituido: 'todos' | 'validos' | 'substituidos';
+  /** Drill-down do painel de prazo: faixa de prazo (vencimento − emissão). '' = sem filtro. */
+  prazoFaixa: '' | 'ate30' | 'de31a60' | 'de61a90' | 'mais90' | 'semData';
+  /** Drill-down do alerta: prazo > 30 dias, vencido e não pago. */
+  prazoLongoVencido: boolean;
 }
 
 interface FiltrosCpProps {
@@ -49,15 +57,16 @@ function inicioDoMes(): string {
   const hoje = new Date();
   return new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().slice(0, 10);
 }
-function inicioProximoMes(): string {
+/** Último dia do mês corrente (INCLUSIVO) — mesma regra do padrão em page.tsx. */
+function ultimoDiaDoMes(): string {
   const hoje = new Date();
-  return new Date(hoje.getFullYear(), hoje.getMonth() + 1, 1).toISOString().slice(0, 10);
+  return new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).toISOString().slice(0, 10);
 }
 
 export function FiltrosCp({ valores, onChange, onLimpar, setoresDisponiveis }: FiltrosCpProps) {
   const [aberto, setAberto] = useState(false);
-  // Quando o filtro de pagamento esta ativo, o backend ignora o de vencimento
-  // (busca passa a ser "titulos pagos no periodo X"). Refletir visualmente.
+  // Quando o filtro de pagamento está ativo, o backend ignora o de vencimento
+  // (busca passa a ser "títulos pagos no período X"). Refletir visualmente.
   const filtroPagamentoAtivo = !!(valores.dtPagIni || valores.dtPagFim);
 
   const toggleStatus = (s: ContaPagarStatus): void => {
@@ -84,11 +93,12 @@ export function FiltrosCp({ valores, onChange, onLimpar, setoresDisponiveis }: F
     valores.setores.length > 0 ||
     valores.valorMinBrl ||
     valores.valorMaxBrl ||
+    valores.remessa ||
     valores.somenteVencidos ||
     valores.dtPagIni ||
     valores.dtPagFim ||
     valores.dtIni !== inicioDoMes() ||
-    valores.dtFim !== inicioProximoMes();
+    valores.dtFim !== ultimoDiaDoMes();
 
   return (
     <Card className="p-3 sm:p-4 space-y-3">
@@ -120,8 +130,8 @@ export function FiltrosCp({ valores, onChange, onLimpar, setoresDisponiveis }: F
           />
         </div>
         <div className={cn('md:col-span-3', filtroPagamentoAtivo && 'opacity-40 pointer-events-none')}>
-          <Label htmlFor="dtFim" className="text-xs" title="Para um unico dia, repita a mesma data nos dois campos.">
-            Vencimento ate {filtroPagamentoAtivo && <span className="text-[10px] text-amber-700 dark:text-amber-400">(ignorado)</span>}
+          <Label htmlFor="dtFim" className="text-xs" title="Para um único dia, repita a mesma data nos dois campos.">
+            Vencimento até {filtroPagamentoAtivo && <span className="text-[10px] text-amber-700 dark:text-amber-400">(ignorado)</span>}
           </Label>
           <Input
             id="dtFim"
@@ -156,7 +166,7 @@ export function FiltrosCp({ valores, onChange, onLimpar, setoresDisponiveis }: F
           />
         </div>
         <div className="md:col-span-3">
-          <Label htmlFor="dtPagFim" className="text-xs" title="Para um unico dia, repita a mesma data nos dois campos.">Pagamento ate</Label>
+          <Label htmlFor="dtPagFim" className="text-xs" title="Para um único dia, repita a mesma data nos dois campos.">Pagamento até</Label>
           <Input
             id="dtPagFim"
             type="date"
@@ -177,13 +187,45 @@ export function FiltrosCp({ valores, onChange, onLimpar, setoresDisponiveis }: F
             </Button>
           ) : (
             <span className="text-[11px] text-gray-400 dark:text-gray-500">
-              Opcional — filtra pelos pagos no intervalo. Para um unico dia, repita a mesma data nos dois campos. <strong>Quando ativo, ignora o filtro de vencimento.</strong>
+              Opcional — filtra pelos pagos no intervalo. Para um único dia, repita a mesma data nos dois campos. <strong>Quando ativo, ignora o filtro de vencimento.</strong>
             </span>
           )}
         </div>
       </div>
 
-      {/* Linha 2: filtros avancados expansiveis */}
+      {/* Filtro por substituição (SFN-48): ver tudo, só os pagamentos de verdade,
+          ou só as duplicatas substituídas (auditoria). */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-gray-500 dark:text-gray-400">Mostrar:</span>
+        {(
+          [
+            ['todos', 'Todos'],
+            ['validos', 'Pagos de verdade'],
+            ['substituidos', 'Substituídos'],
+          ] as Array<[FiltrosCpValues['substituido'], string]>
+        ).map(([v, l]) => {
+          const ativo = valores.substituido === v;
+          return (
+            <button
+              key={v}
+              type="button"
+              onClick={() => onChange({ ...valores, substituido: v })}
+              className={cn(
+                'rounded-full px-3 py-1 text-xs font-medium border-2 transition-colors',
+                ativo
+                  ? v === 'substituidos'
+                    ? 'bg-amber-100 dark:bg-amber-900/30 border-amber-400 dark:border-amber-500 text-amber-800 dark:text-amber-200'
+                    : 'bg-pioneira-400/20 dark:bg-yellow-500/20 border-pioneira-400 dark:border-yellow-400 text-pioneira-900 dark:text-yellow-200'
+                  : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-pioneira-300 dark:hover:border-yellow-500',
+              )}
+            >
+              {l}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Linha 2: filtros avançados expansíveis */}
       {aberto && (
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3 pt-2 border-t border-gray-200 dark:border-gray-700">
           <div className="md:col-span-6">
@@ -210,9 +252,9 @@ export function FiltrosCp({ valores, onChange, onLimpar, setoresDisponiveis }: F
             </div>
           </div>
           {/*
-            Filtro por setor: so renderiza se houver setores com CPs. Setor vem
+            Filtro por setor: só renderiza se houver setores com CPs. Setor vem
             100% do Globus — centro de custo financeiro do item (CPGITDOC.CODCUSTOFIN),
-            descricao em CPGCUSTOS. `codigo` aqui e o CODCUSTOFIN (ex "20003").
+            descrição em CPGCUSTOS. `codigo` aqui é o CODCUSTOFIN (ex "20003").
           */}
           {setoresDisponiveis.length > 0 && (
             <div className="md:col-span-12">
@@ -226,7 +268,7 @@ export function FiltrosCp({ valores, onChange, onLimpar, setoresDisponiveis }: F
                       key={s.codigo}
                       type="button"
                       onClick={() => toggleSetor(s.codigo)}
-                      title={`${s.codigo} - ${s.nome ?? 'sem descricao'} (${s.totalCps} CPs)`}
+                      title={`${s.codigo} - ${s.nome ?? 'sem descrição'} (${s.totalCps} CPs)`}
                       className={cn(
                         'rounded-full px-3 py-1 text-xs font-medium border-2 transition-colors',
                         ativo
@@ -243,7 +285,7 @@ export function FiltrosCp({ valores, onChange, onLimpar, setoresDisponiveis }: F
             </div>
           )}
           <div className="md:col-span-12">
-            <Label className="text-xs">Origem do titulo</Label>
+            <Label className="text-xs">Origem do título</Label>
             <div className="flex flex-wrap gap-2">
               {ORIGEM_DOCUMENTO_CP.map((o) => {
                 const ativo = valores.origem.includes(o);
@@ -266,7 +308,7 @@ export function FiltrosCp({ valores, onChange, onLimpar, setoresDisponiveis }: F
             </div>
           </div>
           <div className="md:col-span-3">
-            <Label htmlFor="valorMin" className="text-xs">Valor minimo (R$)</Label>
+            <Label htmlFor="valorMin" className="text-xs">Valor mínimo (R$)</Label>
             <Input
               id="valorMin"
               type="number"
@@ -278,7 +320,7 @@ export function FiltrosCp({ valores, onChange, onLimpar, setoresDisponiveis }: F
             />
           </div>
           <div className="md:col-span-3">
-            <Label htmlFor="valorMax" className="text-xs">Valor maximo (R$)</Label>
+            <Label htmlFor="valorMax" className="text-xs">Valor máximo (R$)</Label>
             <Input
               id="valorMax"
               type="number"
@@ -288,6 +330,24 @@ export function FiltrosCp({ valores, onChange, onLimpar, setoresDisponiveis }: F
               value={valores.valorMaxBrl}
               onChange={(e) => onChange({ ...valores, valorMaxBrl: e.target.value })}
             />
+          </div>
+          {/* Remessa enviada ao banco (NROREMESSAPE). Busca por "contém" — aceita o
+              número sem os zeros à esquerda. Só pagamento eletrônico tem remessa. */}
+          <div className="md:col-span-6">
+            <Label htmlFor="remessa" className="text-xs">Remessa ao banco (nº)</Label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                id="remessa"
+                placeholder="ex: 12 ou 0000000012"
+                value={valores.remessa}
+                onChange={(e) => onChange({ ...valores, remessa: e.target.value })}
+                className="pl-9"
+              />
+            </div>
+            <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
+              Lote de pagamento eletrônico enviado ao banco. Pode digitar só o número, sem os zeros.
+            </p>
           </div>
           <div className="md:col-span-12 flex items-center justify-between gap-3 flex-wrap">
             <label className="inline-flex items-center gap-2 text-sm cursor-pointer">

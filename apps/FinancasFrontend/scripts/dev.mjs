@@ -15,7 +15,7 @@
  */
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { garantirNext } from './ensure-next.mjs';
+import { garantirNext, nextQuebrado } from './ensure-next.mjs';
 
 const require = createRequire(import.meta.url);
 const PORTA = '3002';
@@ -64,9 +64,15 @@ function iniciar(tentativa) {
     if (encerrando || signal === 'SIGINT' || signal === 'SIGTERM') {
       process.exit(typeof code === 'number' ? code : 0);
     }
-    const crashNoStartup = !subiu && code !== 0;
-    if (crashNoStartup && RE_MODULO_NEXT.test(errBuf) && tentativa === 0) {
-      console.warn('\n[dev] next caiu no startup por arquivo do next faltando — reinstalando e reiniciando 1x…\n');
+    // Crash no startup (antes de "subiu"). Reinicia 1x SE a instalação do next
+    // estiver quebrada AGORA (arquivo sumiu durante o boot — sintoma clássico) OU
+    // se o erro capturado for de módulo do next faltando. NÃO depende só do stderr:
+    // o next às vezes imprime o erro por outro caminho (stdout / processo-filho),
+    // então checar `nextQuebrado()` direto é o sinal confiável.
+    const crashNoStartup = !subiu;
+    const instalacaoQuebrada = nextQuebrado() || RE_MODULO_NEXT.test(errBuf);
+    if (crashNoStartup && instalacaoQuebrada && tentativa === 0) {
+      console.warn('\n[dev] next caiu no startup e a instalação está quebrada — reinstalando e reiniciando 1x…\n');
       garantirNext();
       return iniciar(1);
     }

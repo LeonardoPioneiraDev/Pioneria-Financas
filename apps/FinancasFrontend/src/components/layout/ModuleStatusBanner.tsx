@@ -6,10 +6,10 @@ import { statusModulo, STATUS_COR } from '@/lib/module-status';
 import { cn } from '@/lib/utils';
 
 /**
- * Banner discreto no topo de paginas reais/parciais, mostrando o status do
- * modulo e o que ainda nao foi implementado. Expansivel via accordion.
+ * Banner discreto no topo de páginas reais/parciais, mostrando o status do
+ * módulo e o que ainda não foi implementado. Expansível via accordion.
  *
- * Quando `status === 'pronto'`, exibe so se houver features pendentes (default
+ * Quando `status === 'pronto'`, exibe só se houver features pendentes (default
  * recolhido). Quando `status === 'parcial'`, banner mais destacado (amarelo).
  */
 export function ModuleStatusBanner({ href }: { href: string }) {
@@ -21,7 +21,11 @@ export function ModuleStatusBanner({ href }: { href: string }) {
 
   const cor = STATUS_COR[modulo.status];
   const pendentes = modulo.features.filter((f) => !f.ok);
-  if (pendentes.length === 0) return null; // sem pendentes, nao polui
+  if (pendentes.length === 0) return null; // sem pendentes, não polui
+
+  // Desativado por decisão (a pedido, sem uso etc.) != trabalho ainda não feito.
+  const emDesenvolvimento = pendentes.filter((f) => !f.desativado);
+  const desativados = pendentes.filter((f) => f.desativado);
 
   const total = modulo.features.length;
   const prontas = total - pendentes.length;
@@ -49,25 +53,51 @@ export function ModuleStatusBanner({ href }: { href: string }) {
             <span className="font-medium">{total}</span>
             <span className="ml-1">funcionalidades prontas</span>
           </span>
-          <span className="text-gray-500 dark:text-gray-400 hidden sm:inline">
-            · {pendentes.length} ainda em desenvolvimento
-          </span>
+          {emDesenvolvimento.length > 0 && (
+            <span className="text-gray-500 dark:text-gray-400 hidden sm:inline">
+              · {emDesenvolvimento.length} ainda em desenvolvimento
+            </span>
+          )}
+          {desativados.length > 0 && (
+            <span className="text-gray-500 dark:text-gray-400 hidden sm:inline">
+              · {desativados.length} desativada{desativados.length > 1 ? 's' : ''} a pedido
+            </span>
+          )}
         </div>
         {aberto ? <ChevronUp className="h-3.5 w-3.5 text-gray-400" /> : <ChevronDown className="h-3.5 w-3.5 text-gray-400" />}
       </button>
       {aberto && (
-        <div className="px-3 pb-3 pt-1 border-t border-gray-100 dark:border-gray-800">
-          <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1.5">
-            Ainda em desenvolvimento
-          </p>
-          <ul className="space-y-1">
-            {pendentes.map((f, i) => (
-              <li key={i} className="flex items-start gap-2 text-gray-700 dark:text-gray-300">
-                <span className="text-gray-300 dark:text-gray-600 shrink-0">○</span>
-                <span>{f.texto}</span>
-              </li>
-            ))}
-          </ul>
+        <div className="px-3 pb-3 pt-1 border-t border-gray-100 dark:border-gray-800 space-y-2">
+          {emDesenvolvimento.length > 0 && (
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1.5">
+                Ainda em desenvolvimento
+              </p>
+              <ul className="space-y-1">
+                {emDesenvolvimento.map((f, i) => (
+                  <li key={i} className="flex items-start gap-2 text-gray-700 dark:text-gray-300">
+                    <span className="text-gray-300 dark:text-gray-600 shrink-0">○</span>
+                    <span>{f.texto}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {desativados.length > 0 && (
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1.5">
+                Desativadas a pedido
+              </p>
+              <ul className="space-y-1">
+                {desativados.map((f, i) => (
+                  <li key={i} className="flex items-start gap-2 text-gray-700 dark:text-gray-300">
+                    <span className="text-gray-300 dark:text-gray-600 shrink-0">⊘</span>
+                    <span>{f.texto}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
     </div>
