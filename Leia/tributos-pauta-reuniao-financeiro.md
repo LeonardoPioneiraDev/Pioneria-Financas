@@ -20,6 +20,12 @@ Dados que já levantamos (pra embasar as respostas):
 - A Pioneira **não é** optante do Simples (porte acima do teto) → Lucro Real/Presumido.
 - **34% dos pagamentos** não têm registro de liberação no Globus (ver
   `cp-workflow-liberacao-aprove-me.md`) — tema de controle, separado de tributos.
+- **Conferência corrigida (06/07/2026):** a heurística só se aplica a **NF de
+  serviço (NFS)** — as ~4.300 NF de mercadoria têm retenção zero *legítima* e
+  antes eram marcadas como divergentes por engano. Universo real = **69 NFS**,
+  das quais **17 divergências reais** — quase todas de **táxi aéreo/aviação**
+  (retiveram só CSLL, ou IRRF a 1% em vez de 1,5%). Vale levar essa lista pra
+  reunião: são casos concretos de retenção potencialmente a menor.
 
 ---
 
@@ -79,6 +85,25 @@ Perguntar:
 - Se o SFN gerar, é pra pagamento direto ou só pra conferência?
 - **Destrava:** funcionalidade #4 (DARF/GPS). Define se geramos arquivo pagável
   ou só um demonstrativo.
+
+### E. INSS patronal da folha — ✅ RESPONDIDO PELOS DADOS (06/07/2026)
+
+Não é mais pergunta aberta — o Globus confirmou. Levar como **achado** pra validar:
+
+- **A Pioneira está em DESONERAÇÃO da folha (CPRB).** `FLP_GPS_INTEGRACPG`
+  (empresa 4) traz o patronal calculado **com e sem** desoneração:
+  `INSSEMPRESA_COMDESON` (real) x `INSSEMPRESA_SEMDESON`. `FLP_ALIQINSSPATRONAL`
+  mostra a alíquota CPRB sobre faturamento caindo `2,0% → 1,6% (2025) → 1,2%
+  (2026)` com `PERC_FOLHA` subindo `5% → 10%` = o **reencargamento gradual da Lei
+  14.973/2024**.
+- **A estimativa de 28,8% superestima ~2x.** Junho/2026: patronal real
+  (COM_DESON) = **R$ 1.477.412,51** (12% da base) vs. **R$ 3.162.559,50**
+  estimados. O SEM_DESON bate 20% exato; o COM_DESON, 12% exato.
+- **Pendente de validação com vocês:** (a) confirmar que o regime CPRB segue
+  vigente em 2026; (b) os ~8,8% de RAT + terceiros e a parcela CPRB sobre a
+  receita entram em guias separadas — confirmar onde recolhem.
+- **Fonte pronta pra ligar:** `FLP_GPS_INTEGRACPG` (retido null aqui, vem da
+  ficha). Vira dado **certo** no painel assim que sincronizarmos.
 
 ### D. Calendário — fonte das datas
 - Confirmar com a contabilidade os **vencimentos exatos** de cada obrigação

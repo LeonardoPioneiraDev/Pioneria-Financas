@@ -68,6 +68,49 @@ export class ContaPagar {
   @Column({ type: 'boolean', default: false })
   quitado!: boolean;
 
+  /**
+   * QUITADO REAL do Globus (CPGDOCTO.QUITADODOCTOCPG='S'), SEM o override que o ETL
+   * aplica em `quitado` (que vira true quando ha data_pagamento). O Globus mantem
+   * QUITADO='N' enquanto o banco nao COMPENSA — e quando o pagamento eletronico foi
+   * ACEITO mas DEVOLVIDO, fica 'N' mesmo com data_pagamento/STATUSPE='PG' preenchidos.
+   * Por isso e a chave pra distinguir "pago de verdade" de "tentativa devolvida".
+   */
+  @Column({ name: 'quitado_globus', type: 'boolean', default: false })
+  quitadoGlobus!: boolean;
+
+  /**
+   * STATUSDOCTOCPG cru do Globus: N=em aberto · B=baixado(pago) · C=cancelado.
+   * É a FONTE do campo `status` — guardado para que a divergência entre o que
+   * mostramos e o que o ERP diz seja visível sem ir ao Oracle.
+   */
+  @Column({ name: 'status_docto_globus', type: 'char', length: 1, nullable: true })
+  statusDoctoGlobus!: string | null;
+
+  /**
+   * Quantas vezes o Globus registrou "Pagamento de documento" para este titulo.
+   * >1 = pagamento cancelado e refeito. NAO significa pagar duas vezes: o titulo
+   * e uma linha so e entra uma vez nos totais. Serve para o financeiro reconhecer
+   * na lista o que ve no historico do ERP.
+   */
+  @Column({ name: 'vezes_pago_globus', type: 'int', default: 0 })
+  vezesPagoGlobus!: number;
+
+  @Column({ name: 'teve_cancelamento_pagamento', type: 'boolean', default: false })
+  teveCancelamentoPagamento!: boolean;
+
+  /**
+   * Vencimento ANTES da última alteração no Globus (prorrogação). NULL = nunca
+   * mudou. Guardado para a tela mostrar "vencia X · prorrogado para Y".
+   */
+  @Column({ name: 'vencimento_anterior', type: 'date', nullable: true })
+  vencimentoAnterior!: string | null;
+
+  @Column({ name: 'vencimento_alterado_em', type: 'timestamptz', nullable: true })
+  vencimentoAlteradoEm!: Date | null;
+
+  @Column({ name: 'teve_prorrogacao', type: 'boolean', default: false })
+  teveProrrogacao!: boolean;
+
   @Column({ type: 'text', nullable: true })
   observacao!: string | null;
 
@@ -79,6 +122,26 @@ export class ContaPagar {
 
   @Column({ name: 'tipo_pagto', type: 'varchar', length: 20, nullable: true })
   tipoPagto!: string | null;
+
+  // ---- Substituicao (CPGDOCTO.CODDOCTOCPGSUBST). Quando o titulo foi substituido/
+  // relancado no Globus, `substituido`=true e `substituidoPorCod` aponta pro
+  // CODDOCTOCPG do sucessor. O antigo NAO e cancelado (status N/B), entao duplicava
+  // na lista e dobrava valor. Fica visivel com selo "Substituido" mas FORA das somas
+  // (perna A "Foi pago", aging, totais). ~23% dos titulos. Ver SFN-48.
+  @Column({ name: 'substituido', type: 'boolean', default: false })
+  substituido!: boolean;
+
+  @Column({ name: 'substituido_por_cod', type: 'varchar', length: 40, nullable: true })
+  substituidoPorCod!: string | null;
+
+  // ---- Confirmacao do pagamento eletronico (CPGDOCTO). `autenticacaoEletronica` =
+  // comprovante (AUTELETRONICA); `statusPe` = STATUSPE ('PG'=pago). O "documento de
+  // retorno do banco" (NRDOCTORETBCOPE) vem vazio na Pioneira, por isso nao e usado.
+  @Column({ name: 'autenticacao_eletronica', type: 'varchar', length: 160, nullable: true })
+  autenticacaoEletronica!: string | null;
+
+  @Column({ name: 'status_pe', type: 'varchar', length: 5, nullable: true })
+  statusPe!: string | null;
 
   // ---- Favorecido "real" (CPGDOCTO.FAVORECIDODOCTOCPG + inscricao do favorecido).
   // Texto livre que pode diferir do fornecedor cadastrado (ex.: fornecedor generico
@@ -112,6 +175,17 @@ export class ContaPagar {
 
   @Column({ name: 'pagamento_doc', type: 'varchar', length: 30, nullable: true })
   pagamentoDoc!: string | null;
+
+  // ---- Remessa enviada ao banco (pagamento eletronico): CPGDOCTO.NROREMESSAPE +
+  // DTREMESSAPE. Titulos com a MESMA (conta + data + numero) foram enviados na MESMA
+  // remessa (lote de pagamento). So o pagamento eletronico tem remessa; borderô/cheque
+  // ficam null (o "lote" deles e o borderô, via cod_movto_bco). O numero REPETE entre
+  // dias/contas — a chave real e conta+data+numero. Ver memory/globus-cp-remessa-pe.
+  @Column({ name: 'numero_remessa', type: 'varchar', length: 10, nullable: true })
+  numeroRemessa!: string | null;
+
+  @Column({ name: 'data_remessa', type: 'timestamptz', nullable: true })
+  dataRemessa!: Date | null;
 
   @Column({ name: 'pagamento_liberado', type: 'boolean', default: false })
   pagamentoLiberado!: boolean;
@@ -199,6 +273,33 @@ export class ContaPagar {
   // mostra a unidade dominante; a UI marca "rateado".
   @Column({ name: 'setor_rateado', type: 'boolean', default: false })
   setorRateado!: boolean;
+
+  /**
+   * Quebra do rateio: uma entrada por unidade (CODCUSTOFIN) quando o titulo tem itens
+   * em mais de um centro de custo (ex.: DOBRAS dividida entre Itapoá/Santa Maria/Gama/
+   * São Sebastião). `setorNome`/`codSetor` continuam sendo a unidade DOMINANTE (maior
+   * valor). Populado no ETL a partir de CPGITDOC agrupado por CODCUSTOFIN.
+   */
+  @Column({ name: 'rateio_setores', type: 'jsonb', nullable: true })
+  rateioSetores!: Array<{ codigo: string; nome: string | null; valorCents: number }> | null;
+
+  /**
+   * Codigos de TODAS as unidades do titulo (dominante + rateio) — pro filtro por setor
+   * pegar o titulo em QUALQUER uma das suas unidades, nao so a dominante. GIN index.
+   */
+  @Column({ name: 'setores_codigos', type: 'text', array: true, nullable: true })
+  setoresCodigos!: string[] | null;
+
+  /**
+   * Quebra do titulo por CONTA CONTABIL (natureza da despesa) — eixo diferente do
+   * setor. Cada item do documento (CPGITDOC) tem uma conta contabil (CODCONTACTB);
+   * aqui vem agrupado por conta, do maior valor pro menor. `classificador` = codigo
+   * contabil pontilhado (ex "3.1.01.09.0603"), `nome` = NOMECONTA (ex "CONSERTOS E
+   * REFORMAS"). Populado no ETL a partir de CPGITDOC + CTBCONTA. Null = 1 conta so
+   * ou titulo ainda nao re-sincronizado.
+   */
+  @Column({ name: 'rateio_contas', type: 'jsonb', nullable: true })
+  rateioContas!: Array<{ classificador: string; nome: string | null; valorCents: number }> | null;
 
   @CreateDateColumn({ name: 'criado_em', type: 'timestamptz' })
   criadoEm!: Date;

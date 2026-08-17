@@ -17,7 +17,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { extrairMensagemErro } from '@/lib/api';
 
 const loginSchema = z.object({
-  email: z.string().email('E-mail invalido'),
+  email: z.string().email('E-mail inválido'),
   password: z.string().min(1, 'Informe sua senha'),
 });
 
@@ -42,13 +42,13 @@ export default function LoginPage() {
     try {
       await login(values);
     } catch (err) {
-      setErro(extrairMensagemErro(err, 'Nao foi possivel entrar. Verifique seus dados.'));
+      setErro(extrairMensagemErro(err, 'Não foi possível entrar. Verifique seus dados.'));
     }
   });
 
   if (loading) {
     return (
-      <AuthShell titulo="Carregando" subtitulo="Verificando sua sessao">
+      <AuthShell titulo="Carregando" subtitulo="Verificando sua sessão">
         <div className="flex justify-center py-6">
           <div className="animate-spin rounded-full h-12 w-12 border-4 border-transparent border-t-[#e6cd4a] dark:border-t-yellow-400" />
         </div>
@@ -57,12 +57,12 @@ export default function LoginPage() {
   }
 
   return (
-    <AuthShell titulo="Pioneira Financas" subtitulo="Faca login para continuar">
+    <AuthShell titulo="Pioneira Finanças" subtitulo="Faça login para continuar">
       {erro && (
         <Alert className="mb-6 border-red-200 dark:border-red-800/50 bg-red-50 dark:bg-red-900/20">
           <AlertIcon />
           <div>
-            <AlertTitle className="text-red-800 dark:text-red-300">Nao foi possivel entrar</AlertTitle>
+            <AlertTitle className="text-red-800 dark:text-red-300">Não foi possível entrar</AlertTitle>
             <AlertDescription className="text-red-700 dark:text-red-400">{erro}</AlertDescription>
           </div>
         </Alert>

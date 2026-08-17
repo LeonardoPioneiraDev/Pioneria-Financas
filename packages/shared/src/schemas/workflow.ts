@@ -192,6 +192,20 @@ export const EtapaInferidaSchema = Type.Object({
        * Evita exibir um nome "responsavel generico" como se fosse quem agiu.
        */
       nota: Type.Optional(Type.String()),
+      /**
+       * Verbo que precede o login na UI. Existe porque "por FULANO" e ambiguo
+       * em etapas onde o registro do Globus e o OPERADOR DO ERP, nao o autor do
+       * ato no mundo real. Ex: na baixa, o USUARIO do
+       * CPGDOCTO_HISTORICO_NEGOCIACOES e quem lancou a baixa no sistema — NAO
+       * quem autorizou o pagamento no banco. Default da UI: "por".
+       */
+      acaoRotulo: Type.Optional(Type.String()),
+      /**
+       * Ressalva exibida junto do rastro, mesmo QUANDO ha usuario. Serve para
+       * declarar explicitamente o que o Globus nao registra (estado "sem dado"),
+       * evitando que o leitor complete a lacuna sozinho.
+       */
+      ressalva: Type.Optional(Type.String()),
     }),
     Type.Null(),
   ]),

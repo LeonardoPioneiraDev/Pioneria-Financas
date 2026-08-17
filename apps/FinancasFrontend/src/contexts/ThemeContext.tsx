@@ -13,8 +13,8 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 const STORAGE_KEY = 'pioneira:theme';
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  // Le do DOM o estado que o script anti-flash ja aplicou (evita ficar 'light'
-  // na primeira renderizacao do client quando o usuario tem dark salvo).
+  // Lê do DOM o estado que o script anti-flash já aplicou (evita ficar 'light'
+  // na primeira renderização do client quando o usuário tem dark salvo).
   const [theme, setTheme] = useState<Theme>(() => {
     if (typeof document === 'undefined') return 'light';
     return document.documentElement.classList.contains('dark') ? 'dark' : 'light';

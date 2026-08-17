@@ -136,6 +136,12 @@ export const ConciliacaoDashboardSchema = Type.Object({
   movtosTotais: Type.Integer(),
   movtosConciliados: Type.Integer(),
   movtosSemPar: Type.Integer(),
+  /** Lançamentos com título (CP) já vinculado pelo Globus via cod_movto_bco. */
+  movtosComTitulo: Type.Integer(),
+  /** Identificados de verdade: conciliado no Globus OU com título de CP ligado. */
+  movtosIdentificados: Type.Integer(),
+  /** Fatia dos identificados que veio do título (CP ligado), não do flag conciliado. */
+  movtosIdentificadosPorTitulo: Type.Integer(),
   conciliacoesSugeridas: Type.Integer(),
   conciliacoesConfirmadas: Type.Integer(),
   conciliacoesRejeitadas: Type.Integer(),
@@ -143,3 +149,129 @@ export const ConciliacaoDashboardSchema = Type.Object({
   valorSemParCents: Type.Integer(),
 });
 export type ConciliacaoDashboard = Static<typeof ConciliacaoDashboardSchema>;
+
+// ====================== VISÃO GLOBUS (só leitura) ======================
+// Mostra a conciliação que JÁ VEM do Globus — sem matching nosso. O vínculo
+// banco↔título usa banco_movto.cod_movto_bco = contas_pagar.cod_movto_bco
+// (vínculo nativo CPGDOCTO.CODMOVTOBCO). Onde o Globus não amarrou, titulos=[].
+
+export const TituloVinculadoSchema = Type.Object({
+  id: Type.String({ format: 'uuid' }),
+  tipo: Type.Union([Type.Literal('cp'), Type.Literal('cr')]),
+  numeroDocumento: Type.Union([Type.String(), Type.Null()]),
+  fornecedorRazaoSocial: Type.Union([Type.String(), Type.Null()]),
+  valorCents: Type.Integer(),
+});
+export type TituloVinculado = Static<typeof TituloVinculadoSchema>;
+
+export const MovimentoConciliadoSchema = Type.Composite([
+  MovtoBancoResumoSchema,
+  Type.Object({
+    /** Flag do Globus (CONCILIADOMOVTOBCO): o banco considera identificado. */
+    conciliadoGlobus: Type.Boolean(),
+    /**
+     * Identificado MANUALMENTE no nosso sistema (conciliação confirmada por
+     * operador), não pelo Globus. Quando true, os `titulos` incluem o que foi
+     * ligado na mão — a UI diferencia "identificado no Globus" de "ligado por você".
+     */
+    vinculoManual: Type.Boolean(),
+    contaNome: Type.Union([Type.String(), Type.Null()]),
+    /**
+     * Título(s) ligados a este lançamento: pelo Globus (cod_movto_bco) e/ou pela
+     * identificação manual confirmada. Vazio = sem detalhe.
+     */
+    titulos: Type.Array(TituloVinculadoSchema),
+  }),
+]);
+export type MovimentoConciliado = Static<typeof MovimentoConciliadoSchema>;
+
+export const MovimentosQuerySchema = Type.Object({
+  status: Type.Optional(Type.Union([
+    Type.Literal('identificados'),
+    Type.Literal('nao_identificados'),
+  ])),
+  contaId: Type.Optional(Type.String({ format: 'uuid' })),
+  busca: Type.Optional(Type.String({ maxLength: 100 })),
+  /** Filtra por data do lançamento no banco (data_movto). Inclusivo. */
+  dtIni: Type.Optional(Type.String({ format: 'date' })),
+  dtFim: Type.Optional(Type.String({ format: 'date' })),
+  pagina: Type.Optional(Type.Integer({ minimum: 1, default: 1 })),
+  porPagina: Type.Optional(Type.Integer({ minimum: 10, maximum: 100, default: 20 })),
+});
+export type MovimentosQuery = Static<typeof MovimentosQuerySchema>;
+
+export const MovimentosResponseSchema = Type.Object({
+  itens: Type.Array(MovimentoConciliadoSchema),
+  total: Type.Integer(),
+  pagina: Type.Integer(),
+  porPagina: Type.Integer(),
+  totalPaginas: Type.Integer(),
+});
+export type MovimentosResponse = Static<typeof MovimentosResponseSchema>;
+
+// ============================================================================
+// EXTRATO MENSAL — entrou × saiu por mês, com transferências (movimentação
+// interna entre contas próprias) à parte, para não distorcer o operacional.
+// ============================================================================
+
+export const ExtratoMensalQuerySchema = Type.Object({
+  /** Filtra por conta bancária (id). Ausente = todas as contas somadas. */
+  contaId: Type.Optional(Type.String({ format: 'uuid' })),
+  /** Ano (YYYY). Ausente = últimos 12 meses. */
+  ano: Type.Optional(Type.Integer({ minimum: 2000, maximum: 2100 })),
+});
+export type ExtratoMensalQuery = Static<typeof ExtratoMensalQuerySchema>;
+
+/** Um mês do extrato, com saldo rolando (saldo final = inicial + entradas − saídas). */
+export const ExtratoMesSchema = Type.Object({
+  mes: Type.String(),            // 'YYYY-MM'
+  rotulo: Type.String(),         // 'jul/2026'
+  movimentos: Type.Integer(),
+  entradasCents: Type.Integer(),
+  saidasCents: Type.Integer(),
+  /** Entradas − saídas do mês. */
+  resultadoCents: Type.Integer(),
+  /** Saldo no início do mês (= saldo final do mês anterior). */
+  saldoInicialCents: Type.Integer(),
+  /** Saldo no fim do mês. */
+  saldoFinalCents: Type.Integer(),
+});
+export type ExtratoMes = Static<typeof ExtratoMesSchema>;
+
+const ExtratoTotaisSchema = Type.Object({
+  entradasCents: Type.Integer(),
+  saidasCents: Type.Integer(),
+  resultadoCents: Type.Integer(),
+  movimentos: Type.Integer(),
+});
+
+/** Extrato de UMA conta bancária: seus meses + totais + saldo atual. */
+export const ExtratoContaSchema = Type.Object({
+  contaId: Type.Union([Type.String({ format: 'uuid' }), Type.Null()]),
+  nome: Type.String(),
+  codBanco: Type.Integer(),
+  codAgencia: Type.Integer(),
+  codContaBco: Type.String(),
+  meses: Type.Array(ExtratoMesSchema),
+  totais: ExtratoTotaisSchema,
+  /** Saldo no fim do último mês do período. */
+  saldoAtualCents: Type.Integer(),
+  /**
+   * true = saldo RELATIVO (parte de zero no 1º movimento) porque a conta não tem
+   * saldo conferido (âncora). Nesse caso o saldo mostra a VARIAÇÃO, não o valor
+   * real em banco — fiel a "não inventa saldo".
+   */
+  saldoRelativo: Type.Boolean(),
+});
+export type ExtratoConta = Static<typeof ExtratoContaSchema>;
+
+export const ExtratoMensalResponseSchema = Type.Object({
+  /** Consolidado (todas as contas somadas). */
+  meses: Type.Array(ExtratoMesSchema),
+  totais: ExtratoTotaisSchema,
+  /** Quebra POR CONTA — cada conta com o próprio extrato, ordenada por movimento. */
+  porConta: Type.Array(ExtratoContaSchema),
+  /** Movimentos que a regra não conseguiu classificar (fiel a "não inventa"). */
+  aClassificar: Type.Integer(),
+});
+export type ExtratoMensalResponse = Static<typeof ExtratoMensalResponseSchema>;

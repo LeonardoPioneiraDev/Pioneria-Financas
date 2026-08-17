@@ -62,6 +62,113 @@ export const CompetenciaFolhaItemSchema = Type.Object({
 });
 export type CompetenciaFolhaItem = Static<typeof CompetenciaFolhaItemSchema>;
 
+// ============================================================================
+// ENCARGOS E BENEFÍCIOS DA FOLHA (fonte: FLP — finance.ficha_evento)
+// ----------------------------------------------------------------------------
+// Diferente da agregacao por competencia acima (que vem do Contas a Pagar e so
+// enxerga o repasse de pensao), este bloco vem da FOLHA REAL do RH (FLP), ja
+// sincronizada pelo modulo folha-detalhe. Mostra o custo da folha quebrado em
+// encargos (INSS/FGTS/IRRF), beneficios (ticket/cesta/seguro) e descontos/
+// repasses (adiantamento/consignado/sindicato/pensao) — cada numero rastreavel
+// ate o evento (verba) de origem.
+// ============================================================================
+
+/** Natureza de uma categoria de folha, para agrupar visualmente. */
+export const NATUREZA_CATEGORIA_FOLHA = ['provento', 'encargo', 'beneficio', 'desconto'] as const;
+export type NaturezaCategoriaFolha = (typeof NATUREZA_CATEGORIA_FOLHA)[number];
+const NaturezaUnion = Type.Union(NATUREZA_CATEGORIA_FOLHA.map((n) => Type.Literal(n)));
+
+/** Um evento (verba) que compoe uma categoria — rastreio do numero ate a fonte. */
+export const EventoRastreioSchema = Type.Object({
+  codEvento: Type.Integer(),
+  descricao: Type.String(),
+  valorCents: Type.Integer(),
+});
+export type EventoRastreio = Static<typeof EventoRastreioSchema>;
+
+/** Categoria da folha (ex.: INSS retido) com total + eventos que a compoem. */
+export const CategoriaFolhaSchema = Type.Object({
+  chave: Type.String(),
+  label: Type.String(),
+  natureza: NaturezaUnion,
+  valorCents: Type.Integer(),
+  /** Funcionarios com pelo menos um evento da categoria (aproximacao: max entre eventos). */
+  qtdFuncionarios: Type.Integer(),
+  eventos: Type.Array(EventoRastreioSchema),
+});
+export type CategoriaFolha = Static<typeof CategoriaFolhaSchema>;
+
+export const FolhaEncargosQuerySchema = Type.Object({
+  /** Competencia YYYY-MM (obrigatoria). */
+  competencia: Type.String({ pattern: '^\\d{4}-(0[1-9]|1[0-2])$' }),
+  /** Tipo de folha FLP (1=mensal, 2=adiantamento, 3=13o, 4=ferias, 5=rescisao). Default 1. */
+  tipoFolha: Type.Optional(Type.Integer({ minimum: 1, maximum: 9 })),
+});
+export type FolhaEncargosQuery = Static<typeof FolhaEncargosQuerySchema>;
+
+export const FolhaEncargosResponseSchema = Type.Object({
+  /** false = nao ha folha FLP sincronizada para a competencia/tipo. */
+  disponivel: Type.Boolean(),
+  competencia: Type.String(),
+  competenciaLabel: Type.String(),
+  tipoFolha: Type.Integer(),
+  tipoFolhaLabel: Type.String(),
+  qtdFuncionarios: Type.Integer(),
+  /** Totalizadores autoritativos da folha (eventos 318 / 319). */
+  proventosCents: Type.Integer(),
+  descontosCents: Type.Integer(),
+  liquidoCents: Type.Integer(),
+  /** Categorias detalhadas (encargos, beneficios, descontos/repasses). */
+  categorias: Type.Array(CategoriaFolhaSchema),
+  /** Total de pensao alimenticia (destaque — vira repasse no Contas a Pagar). */
+  pensaoCents: Type.Integer(),
+  /** Avisos honestos sobre o que NAO esta na folha (ex.: INSS patronal na guia). */
+  observacoes: Type.Array(Type.String()),
+  /** Competencias/tipos com dado FLP local, para o seletor quando vazio. */
+  competenciasDisponiveis: Type.Array(
+    Type.Object({ competencia: Type.String(), tipoFolha: Type.Integer(), qtdFuncionarios: Type.Integer() }),
+  ),
+  ultimoSyncEm: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
+});
+export type FolhaEncargosResponse = Static<typeof FolhaEncargosResponseSchema>;
+
+// ---- Drill-down: funcionarios que compoem uma verba (evento) ----
+// DADO SENSIVEL (LGPD): valores individualizados por funcionario. O acesso e
+// auditado no front (registrarAcesso) como na tela Folha por Setor.
+
+export const FolhaEventoDetalheQuerySchema = Type.Object({
+  competencia: Type.String({ pattern: '^\\d{4}-(0[1-9]|1[0-2])$' }),
+  /** CODEVENTO da verba a detalhar (ex.: 171 = INSS SALARIO). */
+  codEvento: Type.Integer(),
+  tipoFolha: Type.Optional(Type.Integer({ minimum: 1, maximum: 9 })),
+});
+export type FolhaEventoDetalheQuery = Static<typeof FolhaEventoDetalheQuerySchema>;
+
+export const FuncionarioEventoSchema = Type.Object({
+  codFunc: Type.String(),
+  nome: Type.String(),
+  descFuncao: Type.Union([Type.String(), Type.Null()]),
+  descArea: Type.Union([Type.String(), Type.Null()]),
+  /** Referencia do lancamento (horas, dias, %) — pode ser nula. */
+  referencia: Type.Union([Type.String(), Type.Null()]),
+  valorCents: Type.Integer(),
+});
+export type FuncionarioEvento = Static<typeof FuncionarioEventoSchema>;
+
+export const FolhaEventoDetalheResponseSchema = Type.Object({
+  codEvento: Type.Integer(),
+  descricao: Type.String(),
+  competencia: Type.String(),
+  competenciaLabel: Type.String(),
+  tipoFolha: Type.Integer(),
+  tipoFolhaLabel: Type.String(),
+  totalCents: Type.Integer(),
+  qtdFuncionarios: Type.Integer(),
+  /** Funcionarios ordenados por valor (maior primeiro). */
+  funcionarios: Type.Array(FuncionarioEventoSchema),
+});
+export type FolhaEventoDetalheResponse = Static<typeof FolhaEventoDetalheResponseSchema>;
+
 export const FolhaCompetenciasResponseSchema = Type.Object({
   competencias: Type.Array(CompetenciaFolhaItemSchema),
   totais: Type.Object({

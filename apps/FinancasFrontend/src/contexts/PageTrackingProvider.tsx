@@ -21,7 +21,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/dashboard': 'Dashboard',
   '/login': 'Login',
   '/forgot-password': 'Recuperar senha',
-  '/admin/usuarios': 'Usuarios',
+  '/admin/usuarios': 'Usuários',
 };
 
 function tituloPara(path: string): string {
@@ -50,7 +50,7 @@ export function PageTrackingProvider({ children }: { children: ReactNode }) {
         timeOnPageMs: timeOnPage,
       })
       .catch(() => {
-        // fire-and-forget - falha nao afeta navegacao
+        // fire-and-forget - falha não afeta navegação
       });
 
     ultimoPath.current = pathname;

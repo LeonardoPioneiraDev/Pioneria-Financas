@@ -125,11 +125,11 @@ export const FONTES_TRIBUTARIAS = [
     orientacao: "Globus confirma 'R' = Lucro Real (exercício 2024).",
   },
   {
-    item: 'INSS retido',
-    descricao: 'Retenção de 11% (cessão de mão de obra etc.).',
+    item: 'INSS retido (NF de serviço)',
+    descricao: 'Retenção de 11% sobre NF de serviço (cessão de mão de obra etc.).',
     fonteGlobus: 'CPGDOCTO.VLRINSSCPG',
     estado: 'vazio_globus',
-    orientacao: 'Vem ZERO em 100% dos títulos. Por isso é só informativo — não dá pra conferir o que não existe. Se houver retenção real, precisa ser lançada no Globus.',
+    orientacao: 'Vem ZERO nas NF de serviço. ATENÇÃO: isso NÃO quer dizer que a empresa não tem INSS — o INSS de verdade está na FOLHA (~R$ 1,3 mi/mês retido do funcionário sobre base ~R$ 12 mi; patronal recolhido em GPS). Veja o painel "Tributos da Folha".',
   },
   {
     item: 'ISS retido',
@@ -205,6 +205,76 @@ export const CalendarioTributarioQuerySchema = Type.Object({
   mes: Type.Optional(Type.Integer({ minimum: 1, maximum: 12 })),
 });
 export type CalendarioTributarioQuery = Static<typeof CalendarioTributarioQuerySchema>;
+
+// ============================================================================
+// TRIBUTOS DA FOLHA — INSS, FGTS, IRRF vindos da folha real (FLP).
+// ----------------------------------------------------------------------------
+// O módulo Tributos, olhando só o CP, mostrava INSS=0. O peso tributário real da
+// empresa está na folha. Aqui trazemos os valores CERTOS (retido/depositado) e,
+// pro INSS patronal, uma ESTIMATIVA claramente marcada (base x alíquota) — nunca
+// cravamos, porque o regime pode ter desoneração (CPRB) no transporte.
+// ============================================================================
+
+export const TributosFolhaQuerySchema = Type.Object({
+  competencia: Type.String({ pattern: '^\\d{4}-(0[1-9]|1[0-2])$' }),
+  tipoFolha: Type.Optional(Type.Integer({ minimum: 1, maximum: 9 })),
+});
+export type TributosFolhaQuery = Static<typeof TributosFolhaQuerySchema>;
+
+export const TributosFolhaResponseSchema = Type.Object({
+  /** false = sem folha (FLP) sincronizada para a competência. */
+  disponivel: Type.Boolean(),
+  competencia: Type.String(),
+  competenciaLabel: Type.String(),
+  tipoFolha: Type.Integer(),
+  qtdFuncionarios: Type.Integer(),
+  /** Valores CERTOS (o que a empresa retém/deposita). */
+  inssRetidoCents: Type.Integer(),
+  fgtsCents: Type.Integer(),
+  irrfRetidoCents: Type.Integer(),
+  /** Base de cálculo do INSS (evento 315) — dado real. */
+  baseInssCents: Type.Integer(),
+  /**
+   * INSS patronal ESTIMADO = baseInss x aliquotaPatronalEstimada. NÃO é dado real:
+   * depende do regime (CPP ~20% + RAT + terceiros, OU desoneração/CPRB no transporte).
+   */
+  inssPatronalEstimadoCents: Type.Integer(),
+  aliquotaPatronalEstimada: Type.Number(),
+  /**
+   * INSS patronal REAL do Globus (FLP_GPS_INTEGRACPG, COM desoneração) — o que a
+   * empresa efetivamente recolhe sobre a folha. 0 quando a guia não foi
+   * sincronizada para a competência. `patronalFonte` diz qual usar.
+   */
+  inssPatronalRealCents: Type.Integer(),
+  /** Quanto seria SEM desoneração (20% da base) — só comparação. 0 se não sincronizado. */
+  inssPatronalSemDesonCents: Type.Integer(),
+  /** Base de contribuição da GPS (dado real, quando sincronizado). */
+  baseContribGpsCents: Type.Integer(),
+  /** 'real' = usa o valor do Globus (GPS); 'estimativa' = usa base × 28,8%. */
+  patronalFonte: Type.Union([Type.Literal('real'), Type.Literal('estimativa')]),
+  /** Quando a guia (FLP_GPS) desta competência foi sincronizada. Null = nunca. */
+  gpsSincronizadoEm: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
+  /** Avisos honestos sobre o que é certo x estimado x fora da folha. */
+  observacoes: Type.Array(Type.String()),
+  /** Competências com folha FLP no banco local, para guiar quando o mês está vazio. */
+  competenciasDisponiveis: Type.Array(
+    Type.Object({ competencia: Type.String(), qtdFuncionarios: Type.Integer() }),
+  ),
+  ultimoSyncEm: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
+});
+export type TributosFolhaResponse = Static<typeof TributosFolhaResponseSchema>;
+
+/** Resultado do sync do FLP_GPS_INTEGRACPG (INSS patronal real da folha). */
+export const TributosFolhaSyncResponseSchema = Type.Object({
+  jobId: Type.String({ format: 'uuid' }),
+  registrosLidos: Type.Integer(),
+  registrosGravados: Type.Integer(),
+  etlGravados: Type.Integer(),
+  duracaoMs: Type.Integer(),
+  status: Type.Union([Type.Literal('ok'), Type.Literal('parcial'), Type.Literal('erro')]),
+  mensagem: Type.Optional(Type.String()),
+});
+export type TributosFolhaSyncResponse = Static<typeof TributosFolhaSyncResponseSchema>;
 
 export const CalendarioTributarioResponseSchema = Type.Object({
   ano: Type.Integer(),

@@ -17,16 +17,16 @@ function dataHoraFmt(d: string | null): string {
 /**
  * Timeline read-only do workflow inferido a partir do estado do documento.
  *
- * NAO permite avancar etapa — o estado e derivado dos campos do documento
+ * NÃO permite avançar etapa — o estado é derivado dos campos do documento
  * (quitado, dataPagamento, status etc.) e atualiza automaticamente quando
  * a fonte (Globus) muda.
  *
  * Renderiza cada etapa do template com um estado:
- *  - passada (verde) — concluida segundo os dados
- *  - atual (cor da etapa, com anel) — onde o documento esta agora
+ *  - passada (verde) — concluída segundo os dados
+ *  - atual (cor da etapa, com anel) — onde o documento está agora
  *  - pulada (cinza claro) — etapa sem registro no Globus (não prova que não ocorreu;
  *    pode ter acontecido no APROVE-ME e não ter sido espelhado de volta)
- *  - futura (cinza) — ainda nao alcancada
+ *  - futura (cinza) — ainda não alcançada
  */
 interface WorkflowInferidoProps {
   documentoTipo: string;
@@ -68,7 +68,7 @@ export function WorkflowInferido({ documentoTipo, documentoId, compacto = false 
 
   return (
     <div className="space-y-4">
-      {/* Cabecalho: template + status */}
+      {/* Cabeçalho: template + status */}
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="text-gray-500 dark:text-gray-400">Workflow:</span>
         <span className="font-medium text-gray-900 dark:text-gray-100">{data.template.nome}</span>
@@ -100,7 +100,7 @@ export function WorkflowInferido({ documentoTipo, documentoId, compacto = false 
                 />
               )}
 
-              {/* Bullet com icone */}
+              {/* Bullet com ícone */}
               <div
                 className={cn(
                   'relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2',
@@ -112,7 +112,7 @@ export function WorkflowInferido({ documentoTipo, documentoId, compacto = false 
                 <Icone className={cn('h-4 w-4', cor.text)} />
               </div>
 
-              {/* Conteudo */}
+              {/* Conteúdo */}
               <div className="min-w-0 flex-1 pt-1">
                 <div className="flex flex-wrap items-baseline gap-x-2">
                   <span className={cn('text-sm font-medium', cor.text)}>{etapa.nome}</span>
@@ -126,7 +126,11 @@ export function WorkflowInferido({ documentoTipo, documentoId, compacto = false 
                     <>
                       <p className="mt-1 text-xs flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300">
                         <User className="h-3 w-3" />
-                        por <span className="font-mono font-semibold">{etapa.auditoria.usuario}</span>
+                        {/* O verbo vem do backend: em etapas onde o Globus registra o
+                            OPERADOR DO ERP (a baixa), "por FULANO" seria lido como
+                            "FULANO pagou". Default continua sendo "por". */}
+                        {etapa.auditoria.acaoRotulo ?? 'por'}{' '}
+                        <span className="font-mono font-semibold">{etapa.auditoria.usuario}</span>
                         {etapa.auditoria.data && (
                           <span className="text-gray-500 dark:text-gray-400 ml-1 font-normal">
                             em {dataHoraFmt(etapa.auditoria.data)}
@@ -135,7 +139,7 @@ export function WorkflowInferido({ documentoTipo, documentoId, compacto = false 
                       </p>
                       {etapa.auditoria.usuariosSecundarios && etapa.auditoria.usuariosSecundarios.length > 0 && (
                         <p className="mt-0.5 ml-4 text-[11px] text-emerald-700 dark:text-emerald-400">
-                          + tambem:{' '}
+                          + também:{' '}
                           {etapa.auditoria.usuariosSecundarios.map((u, i) => (
                             <span key={u}>
                               {i > 0 && ', '}
@@ -146,7 +150,7 @@ export function WorkflowInferido({ documentoTipo, documentoId, compacto = false 
                       )}
                     </>
                   ) : etapa.auditoria.nota ? (
-                    // Sem usuario rastreavel, mas com algo honesto a dizer (ex: baixa
+                    // Sem usuário rastreável, mas com algo honesto a dizer (ex: baixa
                     // com data mas sem executor no Globus). NUNCA exibir um nome chutado.
                     <p className="mt-1 text-xs flex items-start gap-1.5 text-gray-500 dark:text-gray-400">
                       <Info className="h-3 w-3 mt-0.5 shrink-0" />
@@ -155,7 +159,7 @@ export function WorkflowInferido({ documentoTipo, documentoId, compacto = false 
                   ) : (
                     <p className="mt-1 text-xs flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
                       <User className="h-3 w-3" />
-                      <span className="italic">usuario nao registrado</span>
+                      <span className="italic">usuário não registrado</span>
                       {etapa.auditoria.data && (
                         <span className="ml-1 font-normal">em {dataHoraFmt(etapa.auditoria.data)}</span>
                       )}
@@ -164,13 +168,22 @@ export function WorkflowInferido({ documentoTipo, documentoId, compacto = false 
                 ) : (etapa.estado === 'passada' || etapa.estado === 'pulada') ? (
                   <p className="mt-1 text-[10px] text-gray-400 dark:text-gray-500 italic">
                     {etapa.estado === 'pulada'
-                      ? 'sem registro desta etapa no Globus — pode ter ocorrido no APROVE-ME e nao ter sido espelhado'
+                      ? 'sem registro desta etapa no Globus — pode ter ocorrido no APROVE-ME e não ter sido espelhado'
                       : 'sem rastro do Globus (inferido pelo estado)'}
                   </p>
                 ) : null}
+                {/* Ressalva: aparece MESMO com usuário identificado. Declara em voz
+                    alta o que o Globus não registra, para o leitor não completar a
+                    lacuna sozinho (ex.: confundir quem deu baixa com quem pagou). */}
+                {etapa.auditoria?.ressalva && (
+                  <p className="mt-1 flex items-start gap-1.5 rounded-md bg-amber-50 px-2 py-1 text-[11px] leading-snug text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                    <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                    <span>{etapa.auditoria.ressalva}</span>
+                  </p>
+                )}
                 {etapa.papelResponsavel && (etapa.estado === 'atual' || etapa.estado === 'futura') && (
                   <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
-                    Responsavel: <span className="font-medium">{etapa.papelResponsavel}</span>
+                    Responsável: <span className="font-medium">{etapa.papelResponsavel}</span>
                   </p>
                 )}
               </div>
@@ -179,10 +192,10 @@ export function WorkflowInferido({ documentoTipo, documentoId, compacto = false 
         })}
       </ol>
 
-      {/* Resumo "proxima etapa" */}
+      {/* Resumo "próxima etapa" */}
       {data.proximaEtapa && data.status === 'em_andamento' && (
         <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-xs dark:border-blue-900/40 dark:bg-blue-950/30">
-          <span className="font-medium text-blue-800 dark:text-blue-200">Proxima etapa:</span>{' '}
+          <span className="font-medium text-blue-800 dark:text-blue-200">Próxima etapa:</span>{' '}
           <span className="text-blue-700 dark:text-blue-300">{data.proximaEtapa.nome}</span>
           <span className="ml-2 text-blue-500 dark:text-blue-400">
             (vai mudar automaticamente quando o documento avancar no Globus)
@@ -226,7 +239,7 @@ export function WorkflowInferido({ documentoTipo, documentoId, compacto = false 
 
 function formatarSinal(valor: unknown): string {
   if (valor === null || valor === undefined) return '—';
-  if (typeof valor === 'boolean') return valor ? 'sim' : 'nao';
+  if (typeof valor === 'boolean') return valor ? 'sim' : 'não';
   if (typeof valor === 'string') return valor.length > 0 ? valor : '—';
   if (typeof valor === 'number') return String(valor);
   return JSON.stringify(valor);
@@ -283,7 +296,7 @@ function StatusBadge({ status }: { status: string }) {
       classes: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
     },
     concluido: {
-      label: 'Concluido',
+      label: 'Concluído',
       classes: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
     },
     cancelado: {

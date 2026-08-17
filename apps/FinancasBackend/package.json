@@ -16,6 +16,7 @@
     "migration:run": "tsx src/scripts/run-migrations.ts",
     "migration:revert": "typeorm-ts-node-esm migration:revert -d src/data-source.ts",
     "seed:admin": "tsx src/scripts/seed-admin.ts",
+    "relatorio:prazo": "tsx src/scripts/gerar-relatorio-prazo.ts",
     "seed:workflow": "tsx src/scripts/seed-workflow-templates.ts",
     "clean": "rimraf dist .turbo"
   },
@@ -33,6 +34,7 @@
     "bcrypt": "^5.1.1",
     "bullmq": "^5.4.0",
     "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
     "fastify": "^4.26.0",
     "fastify-plugin": "^4.5.0",
     "ioredis": "^5.3.2",

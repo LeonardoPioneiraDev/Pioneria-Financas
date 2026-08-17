@@ -51,6 +51,8 @@ export function buildCpEventosEtl(fastify: FastifyInstance) {
 
       let gravados = 0;
       let comErro = 0;
+      /** Titulos tocados nesta rodada — so eles precisam recontar. */
+      const tocados = new Set<string>();
 
       for (const linha of pendentes) {
         try {
@@ -88,6 +90,7 @@ export function buildCpEventosEtl(fastify: FastifyInstance) {
           linha.processadoEm = new Date();
           await stageRepo.save(linha);
           gravados += 1;
+          tocados.add(codDoctoCpg);
         } catch (err) {
           comErro += 1;
           log.warn({ err, stageId: linha.id }, '[etl:cp-eventos] falha ao processar evento');
@@ -104,9 +107,31 @@ export function buildCpEventosEtl(fastify: FastifyInstance) {
         }
       }
 
+      // Reconta "pagamento refeito" nos titulos tocados. Denormalizado para a
+      // LISTA marcar o selo sem join. So conta o ato cujo TEXTO diz pagamento:
+      // "Adiantamento associado." tambem termina em status 'B' e inflaria.
+      if (tocados.size > 0) {
+        await fastify.db.query(
+          `UPDATE finance.contas_pagar cp
+           SET    vezes_pago_globus = x.vezes,
+                  teve_cancelamento_pagamento = x.cancelou
+           FROM (
+             SELECT cod_docto_cpg,
+                    COUNT(*) FILTER (WHERE mais_informacoes ILIKE '%pagamento de documento%') AS vezes,
+                    BOOL_OR(mais_informacoes ILIKE '%cancelamento de pagamento%')             AS cancelou
+             FROM   finance.cp_eventos
+             WHERE  cod_docto_cpg = ANY($1::bigint[])
+             GROUP  BY cod_docto_cpg
+           ) x
+           WHERE x.cod_docto_cpg::text = cp.origem_id_externo
+             AND cp.origem_sistema = 'globus'`,
+          [[...tocados]],
+        );
+      }
+
       const duracaoMs = Date.now() - inicio;
       log.info(
-        { processados: pendentes.length, gravados, comErro, duracaoMs },
+        { processados: pendentes.length, gravados, comErro, duracaoMs, titulosRecontados: tocados.size },
         `[etl:cp-eventos] concluido (${gravados}/${pendentes.length} gravados, ${comErro} erros, ${duracaoMs}ms)`,
       );
       return { processados: pendentes.length, gravados, comErro };

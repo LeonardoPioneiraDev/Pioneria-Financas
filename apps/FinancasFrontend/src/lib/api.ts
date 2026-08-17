@@ -35,7 +35,9 @@ export const api: AxiosInstance = axios.create({
 // FLP é o mais pesado (~30k upserts/competência): 15 minutos.
 const TIMEOUTS_LONGOS: Array<{ pattern: RegExp; timeoutMs: number }> = [
   { pattern: /\/folha-detalhe\/sync/, timeoutMs: 15 * 60_000 },
-  { pattern: /\/sync($|\?)/, timeoutMs: 5 * 60_000 },
+  // Cobre tanto `/sync` quanto `/sincronizar` (depreciação usa o segundo — o
+  // padrão antigo só pegava "/sync" e o sync da depreciação caía no timeout curto).
+  { pattern: /\/(sync|sincronizar)($|\?)/, timeoutMs: 5 * 60_000 },
   { pattern: /\/sumario/, timeoutMs: 60_000 },
 ];
 

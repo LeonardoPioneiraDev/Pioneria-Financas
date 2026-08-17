@@ -20,6 +20,8 @@ Documentação do sistema financeiro da Viação Pioneira (Brasília-DF). **Banc
 | **Recebíveis GDF** (BRB Mobilidade) | [`recebiveis-gdf.md`](recebiveis-gdf.md) |
 | **Fluxo de Caixa** | [`fluxo-caixa.md`](fluxo-caixa.md) |
 | **Sync e observabilidade** (transversal) | [`sync-e-observabilidade.md`](sync-e-observabilidade.md) |
+| **CP — status divergente do Globus** | [`cp-status-divergencia-globus.md`](cp-status-divergencia-globus.md) |
+| **Validação e Conferência** (transversal) | [`padrao-validacao-conferencia.md`](padrao-validacao-conferencia.md) |
 | **Folha — Detalhamento FLP** | [`folha-flp-detalhamento.md`](folha-flp-detalhamento.md) |
 
 ## Blueprint (planejamento original)
@@ -43,6 +45,12 @@ Documentação do sistema financeiro da Viação Pioneira (Brasília-DF). **Banc
 | [Arrecadação operacional](globus-arrecadacao-operacional.md) | T_ARR_GUIA, T_ARR_VIAGENS_GUIA, BGM_CADLINHAS, tarifas SEMOB |
 | [Previsão de fluxo de caixa (modelo original)](previsao-fluxo-caixa.md) | Forecast, REFERENCIA Praxio (HHH.MM), modelo canônico |
 | [Exploração Globus 2026-05-18](globus-exploracao-2026-05-18.md) | Mapeamento inicial das tabelas |
+
+## Padrões corporativos (reusáveis em outros sistemas)
+
+| Padrão | Documento | O que padroniza |
+|---|---|---|
+| **Validação e Conferência** | [`padrao-validacao-conferencia.md`](padrao-validacao-conferencia.md) | Como colocar um sistema em produção com os números conferidos pelo negócio e prova documental de quem conferiu — papéis, trilha sequencial, ressalvas, aval, notificações e relatório |
 
 ## Decisões já tomadas (fixadas em código)
 

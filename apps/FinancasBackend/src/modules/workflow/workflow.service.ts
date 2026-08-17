@@ -83,7 +83,7 @@ export function buildWorkflowService(fastify: FastifyInstance) {
 
   async function carregarTemplateOuFalhar(id: string): Promise<WorkflowTemplate> {
     const t = await templateRepo.findOne({ where: { id } });
-    if (!t) throw fastify.httpErrors.notFound('Template de workflow nao encontrado');
+    if (!t) throw fastify.httpErrors.notFound('Template de workflow não encontrado');
     if (!t.ativo) throw fastify.httpErrors.conflict('Template inativo');
     if (!Array.isArray(t.etapas) || t.etapas.length === 0) {
       throw fastify.httpErrors.unprocessableEntity('Template sem etapas');
@@ -93,9 +93,9 @@ export function buildWorkflowService(fastify: FastifyInstance) {
 
   async function carregarInstanceOuFalhar(id: string): Promise<{ instance: WorkflowInstance; template: WorkflowTemplate }> {
     const instance = await instanceRepo.findOne({ where: { id } });
-    if (!instance) throw fastify.httpErrors.notFound('Workflow nao encontrado');
+    if (!instance) throw fastify.httpErrors.notFound('Workflow não encontrado');
     const template = await templateRepo.findOne({ where: { id: instance.templateId } });
-    if (!template) throw fastify.httpErrors.notFound('Template do workflow nao encontrado');
+    if (!template) throw fastify.httpErrors.notFound('Template do workflow não encontrado');
     return { instance, template };
   }
 
@@ -140,7 +140,7 @@ export function buildWorkflowService(fastify: FastifyInstance) {
 
     async obterTemplate(id: string): Promise<WorkflowTemplateResponse> {
       const t = await templateRepo.findOne({ where: { id } });
-      if (!t) throw fastify.httpErrors.notFound('Template nao encontrado');
+      if (!t) throw fastify.httpErrors.notFound('Template não encontrado');
       return templateToResponse(t);
     },
 
@@ -148,7 +148,7 @@ export function buildWorkflowService(fastify: FastifyInstance) {
       const dup = await templateRepo.findOne({
         where: { nome: payload.nome, documentoTipo: payload.documentoTipo },
       });
-      if (dup) throw fastify.httpErrors.conflict('Ja existe template com este nome para este tipo de documento');
+      if (dup) throw fastify.httpErrors.conflict('Já existe template com este nome para este tipo de documento');
 
       this.validarEtapas(payload.etapas);
       const t = templateRepo.create({
@@ -164,7 +164,7 @@ export function buildWorkflowService(fastify: FastifyInstance) {
 
     async atualizarTemplate(id: string, payload: WorkflowTemplateUpdate): Promise<WorkflowTemplateResponse> {
       const t = await templateRepo.findOne({ where: { id } });
-      if (!t) throw fastify.httpErrors.notFound('Template nao encontrado');
+      if (!t) throw fastify.httpErrors.notFound('Template não encontrado');
       if (payload.nome !== undefined) t.nome = payload.nome;
       if (payload.documentoTipo !== undefined) t.documentoTipo = payload.documentoTipo;
       if (payload.descricao !== undefined) t.descricao = payload.descricao ?? null;
@@ -191,13 +191,13 @@ export function buildWorkflowService(fastify: FastifyInstance) {
     async criarInstance(payload: WorkflowCreateInstance, actor: ActorContext): Promise<WorkflowInstanceResponse> {
       const template = await carregarTemplateOuFalhar(payload.templateId);
       if (template.documentoTipo !== payload.documentoTipo) {
-        throw fastify.httpErrors.unprocessableEntity('Template nao corresponde ao tipo de documento');
+        throw fastify.httpErrors.unprocessableEntity('Template não corresponde ao tipo de documento');
       }
 
       const existente = await instanceRepo.findOne({
         where: { documentoTipo: payload.documentoTipo, documentoId: payload.documentoId },
       });
-      if (existente) throw fastify.httpErrors.conflict('Ja existe workflow para este documento');
+      if (existente) throw fastify.httpErrors.conflict('Já existe workflow para este documento');
 
       const primeira = template.etapas[0];
       if (!primeira) throw fastify.httpErrors.unprocessableEntity('Template sem etapas');
@@ -265,20 +265,20 @@ export function buildWorkflowService(fastify: FastifyInstance) {
     ): Promise<WorkflowInstanceResponse> {
       const { instance, template } = await carregarInstanceOuFalhar(instanceId);
       if (instance.status !== 'em_andamento') {
-        throw fastify.httpErrors.conflict('Workflow nao esta em andamento');
+        throw fastify.httpErrors.conflict('Workflow não está em andamento');
       }
       const etapaAtual = template.etapas[instance.etapaAtualIdx];
-      if (!etapaAtual) throw fastify.httpErrors.unprocessableEntity('Etapa atual invalida');
+      if (!etapaAtual) throw fastify.httpErrors.unprocessableEntity('Etapa atual inválida');
 
       if (etapaAtual.exigeComentario && !payload.comentario) {
-        throw fastify.httpErrors.unprocessableEntity(`Etapa "${etapaAtual.nome}" exige comentario`);
+        throw fastify.httpErrors.unprocessableEntity(`Etapa "${etapaAtual.nome}" exige comentário`);
       }
       if (etapaAtual.exigeAnexo && !payload.anexoUrl) {
         throw fastify.httpErrors.unprocessableEntity(`Etapa "${etapaAtual.nome}" exige anexo`);
       }
       if (etapaAtual.papelResponsavel && actor.role !== 'admin' && actor.role !== etapaAtual.papelResponsavel) {
         throw fastify.httpErrors.forbidden(
-          `Apenas o papel "${etapaAtual.papelResponsavel}" pode avancar esta etapa`,
+          `Apenas o papel "${etapaAtual.papelResponsavel}" pode avançar esta etapa`,
         );
       }
 
@@ -304,7 +304,7 @@ export function buildWorkflowService(fastify: FastifyInstance) {
       }
 
       const proxima = template.etapas[proximoIdx];
-      if (!proxima) throw fastify.httpErrors.unprocessableEntity('Proxima etapa invalida');
+      if (!proxima) throw fastify.httpErrors.unprocessableEntity('Próxima etapa inválida');
       instance.etapaAtual = proxima.chave;
       instance.etapaAtualIdx = proximoIdx;
       if (payload.proximoResponsavelId !== undefined) {
@@ -335,18 +335,18 @@ export function buildWorkflowService(fastify: FastifyInstance) {
     ): Promise<WorkflowInstanceResponse> {
       const { instance, template } = await carregarInstanceOuFalhar(instanceId);
       if (instance.status !== 'em_andamento') {
-        throw fastify.httpErrors.conflict('Workflow nao esta em andamento');
+        throw fastify.httpErrors.conflict('Workflow não está em andamento');
       }
       if (instance.etapaAtualIdx <= 0) {
-        throw fastify.httpErrors.conflict('Ja esta na primeira etapa');
+        throw fastify.httpErrors.conflict('Já está na primeira etapa');
       }
 
       let novoIdx = instance.etapaAtualIdx - 1;
       if (payload.paraEtapa) {
         const idx = template.etapas.findIndex((e) => e.chave === payload.paraEtapa);
-        if (idx < 0) throw fastify.httpErrors.unprocessableEntity('Etapa de destino nao existe no template');
+        if (idx < 0) throw fastify.httpErrors.unprocessableEntity('Etapa de destino não existe no template');
         if (idx >= instance.etapaAtualIdx) {
-          throw fastify.httpErrors.unprocessableEntity('Etapa de destino deve ser anterior a atual');
+          throw fastify.httpErrors.unprocessableEntity('Etapa de destino deve ser anterior à atual');
         }
         novoIdx = idx;
       }
@@ -354,7 +354,7 @@ export function buildWorkflowService(fastify: FastifyInstance) {
       const etapaOrigem = template.etapas[instance.etapaAtualIdx];
       const etapaDestino = template.etapas[novoIdx];
       if (!etapaOrigem || !etapaDestino) {
-        throw fastify.httpErrors.unprocessableEntity('Indice de etapa invalido');
+        throw fastify.httpErrors.unprocessableEntity('Índice de etapa inválido');
       }
 
       instance.etapaAtual = etapaDestino.chave;
@@ -410,10 +410,10 @@ export function buildWorkflowService(fastify: FastifyInstance) {
     ): Promise<WorkflowInstanceResponse> {
       const { instance } = await carregarInstanceOuFalhar(instanceId);
       if (instance.status !== 'em_andamento') {
-        throw fastify.httpErrors.conflict('Workflow nao esta em andamento');
+        throw fastify.httpErrors.conflict('Workflow não está em andamento');
       }
       const novoResp = await userRepo.findOne({ where: { id: payload.responsavelId } });
-      if (!novoResp) throw fastify.httpErrors.notFound('Usuario destinatario nao encontrado');
+      if (!novoResp) throw fastify.httpErrors.notFound('Usuário destinatário não encontrado');
 
       instance.responsavelId = payload.responsavelId;
       await instanceRepo.save(instance);
@@ -438,10 +438,10 @@ export function buildWorkflowService(fastify: FastifyInstance) {
     ): Promise<WorkflowInstanceResponse> {
       const { instance } = await carregarInstanceOuFalhar(instanceId);
       if (instance.status === 'cancelado') {
-        throw fastify.httpErrors.conflict('Workflow ja esta cancelado');
+        throw fastify.httpErrors.conflict('Workflow já está cancelado');
       }
       if (instance.status === 'concluido') {
-        throw fastify.httpErrors.conflict('Workflow ja foi concluido');
+        throw fastify.httpErrors.conflict('Workflow já foi concluído');
       }
       instance.status = 'cancelado';
       await instanceRepo.save(instance);
@@ -461,10 +461,10 @@ export function buildWorkflowService(fastify: FastifyInstance) {
     async retomar(instanceId: string, actor: ActorContext): Promise<WorkflowInstanceResponse> {
       const { instance } = await carregarInstanceOuFalhar(instanceId);
       if (instance.status === 'em_andamento') {
-        throw fastify.httpErrors.conflict('Workflow ja esta em andamento');
+        throw fastify.httpErrors.conflict('Workflow já está em andamento');
       }
       if (instance.status === 'concluido') {
-        throw fastify.httpErrors.conflict('Workflow concluido nao pode ser retomado');
+        throw fastify.httpErrors.conflict('Workflow concluído não pode ser retomado');
       }
       instance.status = 'em_andamento';
       await instanceRepo.save(instance);

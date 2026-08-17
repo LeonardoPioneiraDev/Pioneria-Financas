@@ -33,7 +33,7 @@ export interface HorariosClient {
   get<T = unknown>(
     path: string,
     query?: Record<string, string | number | boolean | undefined>,
-    opts?: { queryName?: string; syncJobId?: string | null },
+    opts?: { queryName?: string; syncJobId?: string | null; apiKey?: string },
   ): Promise<HorariosResponse<T>>;
 }
 
@@ -47,10 +47,10 @@ export const horariosClientPlugin = fp(
   async (fastify) => {
     const cfg = fastify.config.horarios;
 
-    if (!cfg.enabled || !cfg.apiKey) {
+    if (!cfg.enabled || (!cfg.apiKey && !cfg.receitaApiKey)) {
       fastify.log.info(
-        { enabled: cfg.enabled, hasKey: Boolean(cfg.apiKey) },
-        '[horarios] cliente HTTP desabilitado (HORARIOS_ENABLED=false ou sem HORARIOS_API_KEY)',
+        { enabled: cfg.enabled, hasKey: Boolean(cfg.apiKey), hasReceitaKey: Boolean(cfg.receitaApiKey) },
+        '[horarios] cliente HTTP desabilitado (HORARIOS_ENABLED=false ou sem chave)',
       );
       fastify.decorate('horarios', {
         isAvailable: () => false,
@@ -106,11 +106,13 @@ export const horariosClientPlugin = fp(
       async get<T = unknown>(
         path: string,
         query?: Record<string, string | number | boolean | undefined>,
-        opts?: { queryName?: string; syncJobId?: string | null },
+        opts?: { queryName?: string; syncJobId?: string | null; apiKey?: string },
       ): Promise<HorariosResponse<T>> {
         const url = buildUrl(path, query);
         const queryName = opts?.queryName ?? `horarios:${path.split('?')[0]}`;
         const syncJobId = opts?.syncJobId ?? null;
+        const apiKey = opts?.apiKey || cfg.apiKey;
+        if (!apiKey) throw new Error('[horarios] chamada sem API key (defina a chave da integracao correspondente).');
 
         let lastErr: unknown = null;
         for (let tentativa = 1; tentativa <= cfg.maxRetries; tentativa++) {
@@ -120,7 +122,7 @@ export const horariosClientPlugin = fp(
           try {
             const res = await fetch(url, {
               headers: {
-                'X-API-Key': cfg.apiKey,
+                'X-API-Key': apiKey,
                 Accept: 'application/json',
               },
               signal: ctrl.signal,

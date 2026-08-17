@@ -37,12 +37,12 @@ export function buildPasswordsService(fastify: FastifyInstance) {
   async function consumirToken(rawToken: string, tipo: PasswordResetTokenTipo): Promise<{ usuario: User; token: PasswordResetToken }> {
     const tokenHash = hashSha256(rawToken);
     const token = await tokenRepo.findOne({ where: { tokenHash, tipo } });
-    if (!token) throw fastify.httpErrors.notFound('Token invalido');
-    if (token.usadoEm) throw fastify.httpErrors.gone('Token ja utilizado');
+    if (!token) throw fastify.httpErrors.notFound('Token inválido');
+    if (token.usadoEm) throw fastify.httpErrors.gone('Token já utilizado');
     if (token.expiraEm < new Date()) throw fastify.httpErrors.gone('Token expirado');
 
     const usuario = await userRepo.findOne({ where: { id: token.usuarioId } });
-    if (!usuario || !usuario.ativo) throw fastify.httpErrors.notFound('Usuario nao encontrado ou inativo');
+    if (!usuario || !usuario.ativo) throw fastify.httpErrors.notFound('Usuário não encontrado ou inativo');
 
     return { usuario, token };
   }
@@ -50,7 +50,7 @@ export function buildPasswordsService(fastify: FastifyInstance) {
   return {
     /**
      * Cria um token de primeiro-acesso e retorna o link completo. Chamado por
-     * users.service quando admin cria um usuario.
+     * users.service quando admin cria um usuário.
      */
     async gerarLinkPrimeiroAcesso(usuarioId: string, ip: string | null): Promise<string> {
       const raw = await emitirToken(usuarioId, 'first_access', ip);
@@ -75,7 +75,7 @@ export function buildPasswordsService(fastify: FastifyInstance) {
         });
       } catch (err) {
         fastify.log.error({ err, email }, 'Falha ao enviar email de recuperacao');
-        throw fastify.httpErrors.internalServerError('Nao foi possivel enviar o email no momento');
+        throw fastify.httpErrors.internalServerError('Não foi possível enviar o email no momento');
       }
 
       setImmediate(() => {

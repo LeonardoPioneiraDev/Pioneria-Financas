@@ -112,6 +112,11 @@ export const ProjecaoQuerySchema = Type.Object({
   incluirSecundarias: Type.Optional(Type.Boolean()),
   /** Override do % de inadimplencia. Se omitido, calcula do historico. */
   inadimplenciaPerc: Type.Optional(Type.Number({ minimum: 0, maximum: 100 })),
+  /**
+   * Override da media diaria do repasse GDF (centavos). Se omitido, usa a media
+   * dos ultimos 60 dias do extrato. Usado pelos CENARIOS (melhor/pior mes).
+   */
+  gdfMediaDiariaOverrideCents: Type.Optional(Type.Integer({ minimum: 0 })),
 });
 export type ProjecaoQuery = Static<typeof ProjecaoQuerySchema>;
 
@@ -127,7 +132,12 @@ export const ProjecaoDiaSchema = Type.Object({
   entradaCrAjustadoCents: Type.Integer(),
   /** Componente GDF ajustado por glosa (mesma media pra todo dia). */
   entradaGdfAjustadoCents: Type.Integer(),
+  /** Saídas TOTAL do dia = CP vencendo + folha do dia. */
   saidasPrevistasCents: Type.Integer(),
+  /** Componente CP (títulos a pagar vencendo). */
+  saidaCpCents: Type.Integer(),
+  /** Componente folha (líquido dos salários, projetado por dia). */
+  saidaFolhaCents: Type.Integer(),
   /** Saldo do dia (entradas ajustadas - saidas). */
   saldoDoDiaCents: Type.Integer(),
   /** Saldo acumulado (running total) — usar pra detectar gap. */
@@ -136,6 +146,8 @@ export const ProjecaoDiaSchema = Type.Object({
   temGap: Type.Boolean(),
   qtdTitulosCr: Type.Integer(),
   qtdTitulosCp: Type.Integer(),
+  /** Nome do feriado nesse dia (null = dia comum). So SINALIZA — nao muda valores. */
+  feriadoNome: Type.Union([Type.String(), Type.Null()]),
 });
 export type ProjecaoDia = Static<typeof ProjecaoDiaSchema>;
 
@@ -165,23 +177,42 @@ export const ProjecaoResponseSchema = Type.Object({
     valorInadimplenteCents: Type.Integer(),
   }),
   /**
-   * Receita GDF prevista (repasse BRB) — calculada pela media diaria historica
-   * dos resgates, ajustada pela glosa historica (diferenca esperado vs
-   * recebido no banco). Essa e a fonte PRINCIPAL de receita da Pioneira.
+   * Receita GDF prevista (repasse BRB) — média diária dos repasses REAIS que
+   * caíram no extrato (banco_movto, tarifa técnica), projetada pra cada dia do
+   * horizonte. É a fonte PRINCIPAL de receita da Pioneira. NÃO usa a matriz de
+   * bilhetagem (que é só o que o passageiro pagou, ~6x menor).
    */
   receitaGdf: Type.Object({
+    /** 'tdmax' = geração TD Max × fator; 'extrato' = média dos repasses do banco; 'matriz' = legado. */
+    fonte: Type.Union([Type.Literal('tdmax'), Type.Literal('extrato'), Type.Literal('matriz')]),
     janelaDias: Type.Integer(),
-    diasAnalisados: Type.Integer(),
+    /** Dias, na janela, em que houve repasse no extrato. */
+    diasComRepasse: Type.Integer(),
     totalHistoricoCents: Type.Integer(),
     mediaDiariaCents: Type.Integer(),
-    /** % de glosa histórica (esperado-recebido)/esperado nos ultimos N dias. */
-    glosaPercHistorica: Type.Number(),
-    /** Receita diaria ajustada pela glosa (= mediaDiaria * (1 - glosa%)). */
     receitaPrevistaDiariaCents: Type.Integer(),
     /** Total previsto no horizonte (= diaria * horizonteDias). */
     receitaPrevistaHorizonteCents: Type.Integer(),
-    /** True se nao tem dado historico suficiente (< 7 dias). */
+    /** True se nao ha repasse no extrato na janela. */
     historicoInsuficiente: Type.Boolean(),
+    /**
+     * Fator de realizacao (repasse efetivo ÷ receita nominal TD Max, ~0,64). 0 se
+     * fonte != 'tdmax'. A receita da API e NOMINAL (tarifa cheia); o GDF paga menos.
+     */
+    fatorRealizacao: Type.Number(),
+    /** Receita NOMINAL diaria da TD Max (tarifa cheia, antes do fator). 0 se sem TD Max. */
+    receitaNominalDiariaCents: Type.Integer(),
+    /** A receber do GDF ja gerado (cauda do lag: gerado recente x fator - repasse recente). */
+    aReceberGeradoCents: Type.Integer(),
+  }),
+  /** Folha (salários líquidos) projetada como saída — a maior saída da empresa,
+   *  antes ausente (só a pensão estava no CP). Encargos/guias continuam no CP. */
+  folha: Type.Object({
+    disponivel: Type.Boolean(),
+    competenciaBase: Type.Union([Type.String(), Type.Null()]),
+    liquidoMensalCents: Type.Integer(),
+    mediaDiariaCents: Type.Integer(),
+    horizonteCents: Type.Integer(),
   }),
   serie: Type.Array(ProjecaoDiaSchema),
   resumo: Type.Object({
@@ -196,6 +227,135 @@ export const ProjecaoResponseSchema = Type.Object({
   mensagem: Type.Optional(Type.String()),
 });
 export type ProjecaoResponse = Static<typeof ProjecaoResponseSchema>;
+
+// ============================================================================
+// CENARIOS (otimista / realista / pessimista)
+// ----------------------------------------------------------------------------
+// Mesmo motor da projecao, rodado 3x variando os DOIS parametros que de fato
+// oscilam no caixa da Pioneira: a inadimplencia do CR e o repasse GDF (irregular).
+// Premissas DERIVADAS da variacao mensal REAL (min/media/max dos ultimos meses),
+// nao de fatores inventados. CR/CP/folha vencendo sao os mesmos nos 3 (sao titulos
+// agendados) — o que muda e quanto do previsto realmente entra.
+// ============================================================================
+
+export const CenariosQuerySchema = Type.Object({
+  dataReferencia: Type.Optional(Type.String({ format: 'date' })),
+  horizonteDias: Type.Optional(Type.Integer({ minimum: 1, maximum: 365 })),
+  incluirSecundarias: Type.Optional(Type.Boolean()),
+});
+export type CenariosQuery = Static<typeof CenariosQuerySchema>;
+
+export const CenarioFluxoSchema = Type.Object({
+  chave: Type.Union([Type.Literal('otimista'), Type.Literal('realista'), Type.Literal('pessimista')]),
+  nome: Type.String(),
+  /** % de inadimplencia aplicado neste cenario. */
+  inadimplenciaPerc: Type.Number(),
+  /** Media diaria do repasse GDF aplicada neste cenario (centavos). */
+  gdfMediaDiariaCents: Type.Integer(),
+  totalEntradasAjustadasCents: Type.Integer(),
+  totalSaidasCents: Type.Integer(),
+  /** Sobra prevista = entradas ajustadas - saidas. Negativo = falta. */
+  sobraCents: Type.Integer(),
+  /** Cobertura = entradas / saidas * 100. >= 100 cobre. */
+  coberturaPerc: Type.Number(),
+  saldoFinalProjetadoCents: Type.Integer(),
+  diasComGap: Type.Integer(),
+  gapMaximoCents: Type.Integer(),
+});
+export type CenarioFluxo = Static<typeof CenarioFluxoSchema>;
+
+export const CenariosResponseSchema = Type.Object({
+  periodo: Type.Object({
+    dataReferencia: Type.String(),
+    dtIni: Type.String(),
+    dtFim: Type.String(),
+  }),
+  horizonteDias: Type.Integer(),
+  saldoInicialCents: Type.Integer(),
+  saldoConfiavel: Type.Boolean(),
+  /** Ordem: otimista, realista, pessimista. */
+  cenarios: Type.Array(CenarioFluxoSchema),
+  /** Como cada premissa foi derivada (transparencia — nao inventamos). */
+  premissas: Type.Object({
+    inadimplencia: Type.Object({
+      fonte: Type.String(),
+      janelaMeses: Type.Integer(),
+      otimistaPerc: Type.Number(),
+      realistaPerc: Type.Number(),
+      pessimistaPerc: Type.Number(),
+    }),
+    gdf: Type.Object({
+      fonte: Type.String(),
+      janelaMeses: Type.Integer(),
+      otimistaDiariaCents: Type.Integer(),
+      realistaDiariaCents: Type.Integer(),
+      pessimistaDiariaCents: Type.Integer(),
+    }),
+  }),
+  observacoes: Type.Array(Type.String()),
+  mensagem: Type.Optional(Type.String()),
+});
+export type CenariosResponse = Static<typeof CenariosResponseSchema>;
+
+// ============================================================================
+// REALIZADO — "o que JA entrou" (creditos reais do extrato)
+// ----------------------------------------------------------------------------
+// Ponte entre o realizado (Recebiveis) e a previsao (projecao). Mostra o que de
+// fato caiu no banco nos ultimos N dias, separando o repasse GDF (eh_repasse_brb,
+// mesma fonte da projecao) do resto. O detalhe completo por origem/cliente vive
+// no modulo Recebiveis — aqui e so o topo pra amarrar "ja entrou x vai entrar".
+// ============================================================================
+
+export const RealizadoEntradasQuerySchema = Type.Object({
+  dias: Type.Optional(Type.Integer({ minimum: 1, maximum: 365 })),
+});
+export type RealizadoEntradasQuery = Static<typeof RealizadoEntradasQuerySchema>;
+
+export const RealizadoEntradasResponseSchema = Type.Object({
+  dias: Type.Integer(),
+  dtIni: Type.String({ format: 'date' }),
+  dtFim: Type.String({ format: 'date' }),
+  /** Todos os creditos do extrato no periodo (dinheiro que entrou de fato). */
+  totalCreditosCents: Type.Integer(),
+  /** Parte que e repasse GDF (BRB) — a receita principal, inequivoca. */
+  gdfCents: Type.Integer(),
+  /** Resto dos creditos (nem tudo e receita — titularidade/resgate/reembolso; ver Recebiveis). */
+  outrosCents: Type.Integer(),
+  /** Data do ultimo credito no periodo (null se nenhum). */
+  atualizadoEm: Type.Union([Type.String({ format: 'date' }), Type.Null()]),
+});
+export type RealizadoEntradasResponse = Static<typeof RealizadoEntradasResponseSchema>;
+
+// ----------------------------------------------------------------------------
+// FLUXO REALIZADO — entrou x saiu de FATO no extrato (banco_movto), por periodo.
+// Diferente da projecao (estimativa pra frente): aqui e o que ja aconteceu.
+// ----------------------------------------------------------------------------
+
+export const FluxoRealizadoQuerySchema = Type.Object({
+  dataInicio: Type.String({ format: 'date' }),
+  dataFim: Type.String({ format: 'date' }),
+});
+export type FluxoRealizadoQuery = Static<typeof FluxoRealizadoQuerySchema>;
+
+export const FluxoRealizadoDiaSchema = Type.Object({
+  data: Type.String({ format: 'date' }),
+  entrouCents: Type.Integer(),
+  saiuCents: Type.Integer(),
+});
+export type FluxoRealizadoDia = Static<typeof FluxoRealizadoDiaSchema>;
+
+export const FluxoRealizadoResponseSchema = Type.Object({
+  periodo: Type.Object({ dataInicio: Type.String({ format: 'date' }), dataFim: Type.String({ format: 'date' }) }),
+  serie: Type.Array(FluxoRealizadoDiaSchema),
+  totalEntrouCents: Type.Integer(),
+  totalSaiuCents: Type.Integer(),
+  /** entrou - saiu (variacao liquida de caixa no periodo). */
+  variacaoCents: Type.Integer(),
+  /** Dias em que a saida superou a entrada. */
+  diasComSaidaMaior: Type.Integer(),
+  mensagem: Type.Optional(Type.String()),
+});
+export type FluxoRealizadoResponse = Static<typeof FluxoRealizadoResponseSchema>;
 
 export const SyncFluxoCaixaResponseSchema = Type.Object({
   jobIdConta: Type.String({ format: 'uuid' }),

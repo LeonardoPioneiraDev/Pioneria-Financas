@@ -20,7 +20,7 @@ export const boletosPixModule: FastifyPluginAsyncTypebox = async (fastify) => {
       preHandler: [authL],
       schema: {
         tags: ['boletos-pix'],
-        summary: 'CRs elegiveis pra emitir boleto/PIX (status aberto/renegociado)',
+        summary: 'CRs elegíveis pra emitir boleto/PIX (status aberto/renegociado)',
         response: { 200: ElegiveisBoletosResponseSchema },
         security: [{ bearerAuth: [] }],
       },
@@ -34,7 +34,7 @@ export const boletosPixModule: FastifyPluginAsyncTypebox = async (fastify) => {
       preHandler: [authL],
       schema: {
         tags: ['boletos-pix'],
-        summary: 'Ultimos 50 boletos/PIX emitidos',
+        summary: 'Últimos 50 boletos/PIX emitidos',
         response: { 200: BoletosListResponseSchema },
         security: [{ bearerAuth: [] }],
       },
@@ -48,7 +48,7 @@ export const boletosPixModule: FastifyPluginAsyncTypebox = async (fastify) => {
       preHandler: [authL],
       schema: {
         tags: ['boletos-pix'],
-        summary: 'Lista boletos/PIX emitidos pra um CR especifico',
+        summary: 'Lista boletos/PIX emitidos pra um CR específico',
         params: Type.Object({ id: Type.String({ format: 'uuid' }) }),
         response: { 200: BoletosListResponseSchema },
         security: [{ bearerAuth: [] }],
@@ -63,14 +63,21 @@ export const boletosPixModule: FastifyPluginAsyncTypebox = async (fastify) => {
       preHandler: [authW],
       schema: {
         tags: ['boletos-pix'],
-        summary: 'Emite boleto MOCK (sem integracao banco real)',
+        summary: 'Emite boleto MOCK (sem integração banco real)',
         body: EmitirBoletoBodySchema,
         response: { 200: BoletoEmitidoSchema },
         security: [{ bearerAuth: [] }],
       },
       config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
     },
-    async (req) => service.emitirBoleto({ body: req.body, usuarioId: req.user.sub }),
+    // MOCK DESATIVADO (a pedido): não gerar boleto fake. Reativar quando houver
+    // integração bancária real (credenciais + adapter). Código original preservado:
+    // async (req) => service.emitirBoleto({ body: req.body, usuarioId: req.user.sub }),
+    async () => {
+      throw fastify.httpErrors.notImplemented(
+        'Emissão de boleto não configurada: integração bancária real ausente (modo mock desativado).',
+      );
+    },
   );
 
   fastify.post(
@@ -79,13 +86,20 @@ export const boletosPixModule: FastifyPluginAsyncTypebox = async (fastify) => {
       preHandler: [authW],
       schema: {
         tags: ['boletos-pix'],
-        summary: 'Emite PIX MOCK (sem integracao banco real)',
+        summary: 'Emite PIX MOCK (sem integração banco real)',
         body: EmitirPixBodySchema,
         response: { 200: BoletoEmitidoSchema },
         security: [{ bearerAuth: [] }],
       },
       config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
     },
-    async (req) => service.emitirPix({ body: req.body, usuarioId: req.user.sub }),
+    // MOCK DESATIVADO (a pedido): não gerar PIX fake. Reativar quando houver
+    // integração bancária real (credenciais + adapter). Código original preservado:
+    // async (req) => service.emitirPix({ body: req.body, usuarioId: req.user.sub }),
+    async () => {
+      throw fastify.httpErrors.notImplemented(
+        'Emissão de PIX não configurada: integração bancária real ausente (modo mock desativado).',
+      );
+    },
   );
 };

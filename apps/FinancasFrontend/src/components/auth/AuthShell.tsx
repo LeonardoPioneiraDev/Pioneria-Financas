@@ -1,9 +1,9 @@
 ﻿'use client';
 
 import { Moon, Sun } from 'lucide-react';
-import Image from 'next/image';
 import type { ReactNode } from 'react';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useBranding } from '@/hooks/useBranding';
 
 interface AuthShellProps {
   titulo: string;
@@ -13,6 +13,7 @@ interface AuthShellProps {
 
 export function AuthShell({ titulo, subtitulo, children }: AuthShellProps) {
   const { theme, toggleTheme } = useTheme();
+  const { logoSrc, razaoSocial } = useBranding();
 
   return (
     <div className="min-h-screen flex flex-col text-gray-900 dark:text-gray-100 transition-colors duration-500">
@@ -29,12 +30,13 @@ export function AuthShell({ titulo, subtitulo, children }: AuthShellProps) {
                     <div className="absolute inset-0 rounded-full bg-[#e6cd4a]/28 dark:bg-amber-400/15 blur-xl" />
                     <div className="relative p-1.5 rounded-full bg-gradient-to-br from-[#fbcc2c]/22 via-[#d4cc54]/18 to-[#ecd43c]/22 dark:from-yellow-400/10 dark:to-amber-400/10 shadow-inner">
                       <div className="relative mx-auto h-20 w-20 sm:h-24 sm:w-24 rounded-full ring-2 ring-white/50 ring-offset-2 ring-offset-white/80 dark:ring-yellow-400/40 dark:ring-offset-gray-900/50 shadow-lg overflow-hidden">
-                        <Image src="/logo.png" alt="Viacao Pioneira" fill sizes="96px" className="object-contain" priority />
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={logoSrc} alt={razaoSocial} className="absolute inset-0 h-full w-full object-contain" />
                       </div>
                     </div>
                   </div>
                   <div className="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold">
-                    Viacao Pioneira Ltda
+                    {razaoSocial}
                   </div>
                 </div>
 
@@ -66,7 +68,7 @@ export function AuthShell({ titulo, subtitulo, children }: AuthShellProps) {
       </div>
 
       <footer className="w-full py-6 text-center text-sm text-gray-500 dark:text-gray-500 font-medium">
-        Â© {new Date().getFullYear()} Viacao Pioneira Ltda. Todos os direitos reservados.
+        © {new Date().getFullYear()} {razaoSocial}. Todos os direitos reservados.
       </footer>
     </div>
   );

@@ -21,6 +21,50 @@ function brlToCents(valor: number | null | undefined): string {
   return Math.round(valor * 100).toString();
 }
 
+/**
+ * Parseia a quebra do rateio vinda do Globus (LISTAGG): "codigo|nome|centavos;..." ->
+ * lista de unidades. Centavos ja vem inteiro (TO_CHAR(ROUND(valor*100)) na query).
+ */
+function parseRateioSetores(
+  s: string | null | undefined,
+): Array<{ codigo: string; nome: string | null; valorCents: number }> {
+  if (!s) return [];
+  return s
+    .split(';')
+    .map((parte) => {
+      const [codigo, nome, cents] = parte.split('|');
+      return {
+        codigo: (codigo ?? '').trim(),
+        nome: nome?.trim() || null,
+        valorCents: Math.round(Number(cents ?? 0)) || 0,
+      };
+    })
+    .filter((r) => r.codigo.length > 0);
+}
+
+/**
+ * Parseia a quebra por CONTA CONTABIL vinda do Globus (LISTAGG): "classificador|nome|
+ * centavos;..." -> lista de contas. Mesmo formato do rateio de setor, mas o "codigo" e o
+ * classificador contabil (ex "3.1.01.09.0603") e o nome e a NOMECONTA (ex "CONSERTOS E
+ * REFORMAS"). Centavos ja vem inteiro (TO_CHAR(ROUND(valor*100)) na query).
+ */
+function parseRateioContas(
+  s: string | null | undefined,
+): Array<{ classificador: string; nome: string | null; valorCents: number }> {
+  if (!s) return [];
+  return s
+    .split(';')
+    .map((parte) => {
+      const [classificador, nome, cents] = parte.split('|');
+      return {
+        classificador: (classificador ?? '').trim(),
+        nome: nome?.trim() || null,
+        valorCents: Math.round(Number(cents ?? 0)) || 0,
+      };
+    })
+    .filter((r) => r.classificador.length > 0);
+}
+
 // Wrapper local: chama o utilitario padronizado em TZ America/Sao_Paulo.
 // O utilitario ja trata: nullish, NaN, sentinela <1950.
 const dateOnly = dataIsoSpOuNull;
@@ -59,15 +103,33 @@ function detectarOrigem(
   return 'desconhecido';
 }
 
+/**
+ * Status do titulo. A FONTE E O `STATUSDOCTOCPG` — a maquina de estados do
+ * proprio Globus: N=em aberto · B=baixado(pago) · C=cancelado.
+ *
+ * ANTES esta funcao decidia por `QUITADO`/`data_pagamento` e so olhava o
+ * STATUSDOCTOCPG no fim. Isso produzia divergencia com o ERP em dois casos
+ * reais (investigacao de 23/07/2026, ver Leia/cp-status-divergencia-globus.md):
+ *
+ *  1. "Cancelamento de pagamento" no Globus devolve o titulo para N e limpa a
+ *     data, mas DEIXA `QUITADO='S'` residual. Confiando no QUITADO, mostravamos
+ *     PAGO um titulo que o ERP tem em aberto (3 titulos, R$ 15.725,60).
+ *  2. Titulo baixado (B) sem data de pagamento preenchida aparecia como
+ *     pendente (6 titulos da RAIZEM, R$ 927.998,64).
+ *
+ * `QUITADO` NAO e sinal de compensacao: fica 'N' em 32-41% dos pagamentos em
+ * TODOS os meses analisados (19 meses) — e campo que a operacao nao preenche
+ * de forma consistente, varia por modalidade. Nao usar para decidir pagamento.
+ */
 function mapStatus(statusDocto: string, quitado: string | null, dataPagamentoIso: string | null): ContaPagarStatus {
-  const q = quitado?.toUpperCase() === 'S';
-  // Se tem data de pagamento OU flag quitado, e PAGO. O Globus as vezes mantem
-  // QUITADODOCTOCPG='N' enquanto nao compensa bancariamente, mas a data ja
-  // esta preenchida quando a baixa operacional foi feita.
-  if (q || dataPagamentoIso) return 'pago';
-  if (statusDocto === 'C') return 'cancelado';
-  if (statusDocto === 'A') return 'pendente';
-  if (statusDocto === 'F') return 'aprovado';
+  const s = statusDocto?.toUpperCase() ?? '';
+  if (s === 'C') return 'cancelado';
+  if (s === 'B') return 'pago';      // baixado no Globus = pago, com ou sem QUITADO
+  if (s === 'F') return 'aprovado';
+  if (s === 'A' || s === 'N') return 'pendente';
+
+  // Status desconhecido/vazio: cai no comportamento antigo para nao regredir.
+  if (quitado?.toUpperCase() === 'S' || dataPagamentoIso) return 'pago';
   return 'pendente';
 }
 
@@ -184,6 +246,21 @@ export function buildContasPagarEtl(fastify: FastifyInstance) {
 
           const dataVencimento = dateOnly(raw.DATA_VENCIMENTO);
           if (!dataVencimento) throw new Error('DATA_VENCIMENTO ausente');
+
+          // Detecta PRORROGAÇÃO: lê o vencimento que já temos ANTES de sobrescrever.
+          // Só os títulos tocados chegam aqui (hash mudou), então o custo é baixo.
+          const existente = await cpRepo.findOne({
+            where: { origemSistema: SISTEMA, origemIdExterno: String(raw.COD_DOCTO_CPG) },
+            select: { dataVencimento: true, vencimentoAnterior: true, teveProrrogacao: true },
+          });
+          const mudouVencimento = !!existente && existente.dataVencimento !== dataVencimento;
+          // Guarda a data ANTIGA no "anterior" e marca a flag. Se já tinha
+          // prorrogação, mantém a flag ligada.
+          const vencimentoAnterior = mudouVencimento ? existente!.dataVencimento : (existente?.vencimentoAnterior ?? null);
+          const teveProrrogacao = (existente?.teveProrrogacao ?? false)
+            || (mudouVencimento && dataVencimento > existente!.dataVencimento);
+          const vencimentoAlteradoEm = mudouVencimento ? new Date() : undefined;
+
           const dataPagamento = dateOnly(raw.DATA_PAGAMENTO);
           const dataIntegrouFlp = dateOnly(raw.DATA_INTEGROU_FLP);
           const competenciaFlp = dateOnly(raw.COMPETENCIA_FLP);
@@ -229,10 +306,7 @@ export function buildContasPagarEtl(fastify: FastifyInstance) {
           const excluidoEmCanonico = linha.excluidoEm;
           const excluidoMotivoCanonico = linha.excluidoMotivo;
 
-          await cpRepo
-            .createQueryBuilder()
-            .insert()
-            .values({
+          const valoresLinha = {
               empresaId: linha.codigoEmpresa,
               fornecedorId,
               numeroDocumento: raw.NUMERO_DOCUMENTO,
@@ -242,6 +316,9 @@ export function buildContasPagarEtl(fastify: FastifyInstance) {
               dataEmissao: dateOnly(raw.DATA_EMISSAO),
               dataEntrada: dateOnly(raw.DATA_ENTRADA),
               dataVencimento,
+              vencimentoAnterior,
+              vencimentoAlteradoEm,
+              teveProrrogacao,
               dataPagamento,
               valorBrutoCents: brlToCents(valorItens),
               descontoCents: brlToCents(raw.DESCONTO),
@@ -249,11 +326,22 @@ export function buildContasPagarEtl(fastify: FastifyInstance) {
               multaCents: brlToCents(raw.ACRESCIMO),
               status: mapStatus(raw.STATUS_DOCTO, raw.QUITADO, dataPagamento),
               quitado: quitadoBoolean,
+              // QUITADO real do Globus, SEM o override de data_pagamento — preserva o
+              // 'N' de pagamentos aceitos mas nao compensados (devolvidos). Ver SFN-48 (retorno).
+              quitadoGlobus: raw.QUITADO?.toUpperCase() === 'S',
+              statusDoctoGlobus: raw.STATUS_DOCTO?.toUpperCase()?.slice(0, 1) ?? null,
               pagamentoLiberado: raw.PAGAMENTO_LIBERADO?.toUpperCase() === 'S',
               observacao: raw.OBSERVACAO,
               tipoDocumento: raw.TIPO_DOC,
               modalidadePagamento: raw.MODALIDADE_PE,
               tipoPagto: raw.TIPO_PAGTO,
+              // Substituicao: CODDOCTOCPGSUBST preenchido = este e o titulo ANTIGO
+              // (substituido pelo sucessor). Marca pra sair das somas. Ver SFN-48.
+              substituido: raw.COD_DOCTO_CPG_SUBST != null,
+              substituidoPorCod: raw.COD_DOCTO_CPG_SUBST != null ? String(raw.COD_DOCTO_CPG_SUBST) : null,
+              // Confirmacao do pagamento eletronico (comprovante + status PE).
+              autenticacaoEletronica: raw.AUT_ELETRONICA?.trim() || null,
+              statusPe: raw.STATUS_PE?.trim() || null,
               // Favorecido "real" (texto livre) + inscricao do favorecido.
               favorecidoNome: raw.FAVORECIDO_NOME?.trim() || null,
               favorecidoInscricao: raw.NRINSCR_FAV ?? null,
@@ -265,6 +353,9 @@ export function buildContasPagarEtl(fastify: FastifyInstance) {
               bancoPagadorConta: raw.COD_CONTA_PAG?.trim() || null,
               codMovtoBco: raw.COD_MOVTO_BCO != null ? String(raw.COD_MOVTO_BCO) : null,
               pagamentoDoc: raw.PAGAMENTO_DOC?.trim() || null,
+              // Remessa enviada ao banco (pagamento eletronico). Borderô/cheque vem null.
+              numeroRemessa: raw.NRO_REMESSA_PE?.trim() || null,
+              dataRemessa: raw.DT_REMESSA_PE ?? null,
               vlrInssCents: brlToCents(raw.VLR_INSS),
               vlrIrrfCents: brlToCents(raw.VLR_IRRF),
               vlrPisCents: brlToCents(raw.VLR_PIS),
@@ -295,66 +386,48 @@ export function buildContasPagarEtl(fastify: FastifyInstance) {
               codSetor: raw.COD_SETOR != null ? String(raw.COD_SETOR) : null,
               setorNome: raw.SETOR_NOME,
               setorRateado: (raw.QTD_SETORES ?? 0) > 1,
-            })
-            .orUpdate(
-              [
-                'fornecedor_id',
-                'numero_documento',
-                'serie_documento',
-                'numero_parcela',
-                'competencia',
-                'data_emissao',
-                'data_entrada',
-                'data_vencimento',
-                'data_pagamento',
-                'valor_bruto_cents',
-                'desconto_cents',
-                'juros_cents',
-                'multa_cents',
-                'status',
-                'pagamento_liberado',
-                'observacao',
-                'tipo_documento',
-                'modalidade_pagamento',
-                'tipo_pagto',
-                'favorecido_nome',
-                'favorecido_inscricao',
-                'favorecido_tipo_inscricao',
-                'banco_pagador_codigo',
-                'banco_pagador_nome',
-                'banco_pagador_agencia',
-                'banco_pagador_conta',
-                'cod_movto_bco',
-                'pagamento_doc',
-                'vlr_inss_cents',
-                'vlr_irrf_cents',
-                'vlr_pis_cents',
-                'vlr_cofins_cents',
-                'vlr_csll_cents',
-                'vlr_iss_cents',
-                'data_integrou_flp',
-                'competencia_flp',
-                'tipo_folha',
-                'origem_documento',
-                'quitado',
-                'ultimo_sync_em',
-                'excluido_em',
-                'excluido_motivo',
-                'atualizado_em',
-                'usuario_inclusao',
-                'data_inclusao',
-                'usuario_lib_pagto',
-                'data_liberacao_pagto',
-                'usuario_assinatura',
-                'usuario_responsavel',
-                'assinatura_1',
-                'assinatura_2',
-                'cod_setor',
-                'setor_nome',
-                'setor_rateado',
-              ],
-              ['origem_sistema', 'origem_id_externo'],
-            )
+              // Quebra do rateio (por unidade) + codigos de todas as unidades pro filtro.
+              rateioSetores: (() => {
+                const r = parseRateioSetores(raw.RATEIO_SETORES);
+                return r.length > 0 ? r : null;
+              })(),
+              setoresCodigos: (() => {
+                const r = parseRateioSetores(raw.RATEIO_SETORES);
+                if (r.length > 0) return r.map((u) => u.codigo);
+                return raw.COD_SETOR != null ? [String(raw.COD_SETOR)] : null;
+              })(),
+              // Quebra por conta contabil (natureza da despesa) — eixo diferente do setor.
+              rateioContas: (() => {
+                const r = parseRateioContas(raw.RATEIO_CONTAS);
+                return r.length > 0 ? r : null;
+              })(),
+            };
+
+          // Lista de colunas do UPDATE (on conflict) DERIVADA do proprio objeto de
+          // INSERT — nao existe mais uma segunda lista mantida a mao. Isso elimina
+          // estruturalmente a classe de bug em que um campo novo (ou existente)
+          // fica de fora do UPDATE por esquecimento: foi exatamente isso que
+          // congelou `status_docto_globus` no valor do 1o sync pra sempre — a
+          // Conferencia com o Globus acusava R$ 640k de divergencia mesmo com os
+          // totais (que usam `status`, que ESTAVA na lista) corretos. Achado e
+          // corrigido em 30/07/2026. Ver teste em contas-pagar.etl.test.ts.
+          const NAO_ATUALIZAR = new Set<string>(['empresaId', 'origemSistema', 'origemIdExterno']);
+          const colunasUpdate = Object.keys(valoresLinha)
+            .filter((k) => !NAO_ATUALIZAR.has(k))
+            .map((k) => {
+              const col = cpRepo.metadata.findColumnWithPropertyName(k);
+              if (!col) throw new Error(`[etl:cp] coluna "${k}" de valoresLinha nao existe na entidade ContaPagar`);
+              return col.databaseName;
+            });
+          // atualizado_em e @UpdateDateColumn (TypeORM gera o valor sozinho, nao
+          // fica em valoresLinha) — precisa entrar no UPDATE pra refletir o resync.
+          colunasUpdate.push('atualizado_em');
+
+          await cpRepo
+            .createQueryBuilder()
+            .insert()
+            .values(valoresLinha)
+            .orUpdate(colunasUpdate, ['origem_sistema', 'origem_id_externo'])
             .execute();
 
           linha.processadoEm = new Date();

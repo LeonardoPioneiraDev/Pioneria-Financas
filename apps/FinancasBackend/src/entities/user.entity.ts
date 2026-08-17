@@ -26,6 +26,26 @@ export class User {
   @Column({ type: 'varchar', length: 40 })
   role!: UserRole;
 
+  /** Permissoes de funcionalidade (granulares). Ex.: ['ver_contracheque']. */
+  @Column({ type: 'text', array: true, default: () => "'{}'" })
+  permissoes!: string[];
+
+  /** Liberacao progressiva ligada? (menu mostra so as liberadas). */
+  @Column({ name: 'liberacao_progressiva', type: 'boolean', default: false })
+  liberacaoProgressiva!: boolean;
+
+  /** Funcionalidades (hrefs) que o admin atribuiu ao usuario. */
+  @Column({ name: 'funcionalidades_atribuidas', type: 'text', array: true, default: () => "'{}'" })
+  funcionalidadesAtribuidas!: string[];
+
+  /** Funcionalidades (hrefs) que o usuario ja validou. */
+  @Column({ name: 'funcionalidades_validadas', type: 'text', array: true, default: () => "'{}'" })
+  funcionalidadesValidadas!: string[];
+
+  /** Progresso por funcionalidade: { href: { primeiroAcessoEm, validadoEm } }. */
+  @Column({ name: 'progresso_funcionalidades', type: 'jsonb', default: () => "'{}'::jsonb" })
+  progressoFuncionalidades!: Record<string, { primeiroAcessoEm: string | null; validadoEm: string | null; justificativa: string | null }>;
+
   @Column({ type: 'boolean', default: true })
   ativo!: boolean;
 

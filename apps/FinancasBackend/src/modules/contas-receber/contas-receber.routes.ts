@@ -60,7 +60,9 @@ export const contasReceberModule: FastifyPluginAsyncTypebox = async (fastify) =>
   fastify.post(
     '/sync',
     {
-      preHandler: [fastify.requireRole('admin', 'cfo', 'controller')],
+      // TEMPORÁRIO (fase de desenvolvimento/validação): liberado pra qualquer usuário logado.
+      // Reverter para fastify.requireAdmin antes de produção.
+      preHandler: [fastify.authRequired],
       schema: {
         tags: ['contas-receber'],
         summary: 'Sincroniza contas a receber do Globus (Oracle) → Postgres local',

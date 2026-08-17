@@ -1,7 +1,8 @@
 'use client';
 
+import Link from 'next/link';
 import type { LucideIcon } from 'lucide-react';
-import { CheckCircle2, Circle, Clock, Database, HelpCircle } from 'lucide-react';
+import { CheckCircle2, Circle, Clock, Database, HelpCircle, Search, ArrowRight } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { statusModulo, STATUS_COR } from '@/lib/module-status';
 import { cn } from '@/lib/utils';
@@ -9,7 +10,7 @@ import { cn } from '@/lib/utils';
 interface PlaceholderModuleProps {
   /** Use o href da rota (ex: '/conciliacao') pra puxar tudo do MODULOS. */
   href?: string;
-  /** Override (legado) — se nao passar `href`, usa esses props soltos. */
+  /** Override (legado) — se não passar `href`, usa esses props soltos. */
   titulo?: string;
   descricao?: string;
   fase?: string;
@@ -28,7 +29,7 @@ export function PlaceholderModule(props: PlaceholderModuleProps) {
 
   return (
     <div className="space-y-4">
-      {/* Cabecalho */}
+      {/* Cabeçalho */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-3xl font-bold bg-gradient-to-r from-pioneira-900 via-pioneira-800 to-pioneira-900 dark:from-yellow-300 dark:via-yellow-200 dark:to-yellow-300 bg-clip-text text-transparent flex items-center gap-3">
@@ -122,6 +123,27 @@ export function PlaceholderModule(props: PlaceholderModuleProps) {
         )}
       </div>
 
+      {/* O que a exploração dos dados já revelou (fatos observados) */}
+      {modulo?.achados && modulo.achados.length > 0 && (
+        <Card className={cn('p-4 border-l-4', 'border-l-sky-400 dark:border-l-sky-600')}>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-sky-800 dark:text-sky-300 mb-2 flex items-center gap-1.5">
+            <Search className="h-3.5 w-3.5" />
+            O que já sabemos dos dados
+          </h3>
+          <ul className="space-y-2">
+            {modulo.achados.map((a, i) => (
+              <li key={i} className="text-sm text-gray-700 dark:text-gray-300 flex items-start gap-2">
+                <span className="text-sky-500 dark:text-sky-400 shrink-0 mt-1.5 h-1 w-1 rounded-full bg-current" />
+                <span>{a}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-xs text-gray-500 dark:text-gray-400 italic">
+            Fatos observados na exploração dos dados. O que ainda depende de interpretação vira pergunta abaixo.
+          </p>
+        </Card>
+      )}
+
       {/* Perguntas para o financeiro */}
       {modulo?.perguntasFinanceiro && modulo.perguntasFinanceiro.length > 0 && (
         <Card className={cn('p-4 border-l-4', 'border-l-amber-400 dark:border-l-amber-600')}>
@@ -140,6 +162,13 @@ export function PlaceholderModule(props: PlaceholderModuleProps) {
           <p className="mt-3 text-xs text-gray-500 dark:text-gray-400 italic">
             Respondendo essas perguntas, conseguimos definir escopo, dados necessários e priorizar com clareza.
           </p>
+          <Link
+            href={modulo.href ? `/perguntas?modulo=${modulo.href}` : '/perguntas'}
+            className="inline-flex items-center gap-1.5 mt-3 rounded-md bg-amber-200/70 dark:bg-amber-900/40 px-3 py-1.5 text-sm font-semibold text-amber-900 dark:text-amber-100 hover:bg-amber-300/70 dark:hover:bg-amber-800/50 transition-colors"
+          >
+            Responder na aba “Perguntas ao Financeiro”
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
         </Card>
       )}
 

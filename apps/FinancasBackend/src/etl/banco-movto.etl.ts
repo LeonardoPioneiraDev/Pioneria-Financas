@@ -67,10 +67,15 @@ export function buildBancoMovtoEtl(fastify: FastifyInstance) {
           if (ehBrb) repassesBrb += 1;
 
           const origemIdExterno = String(raw.COD_MOVTO_BCO);
+          // O Globus PODE trazer VLMOVTOBCO negativo (debito). Gravamos sempre em
+          // modulo (abs) em valor_cents — a conciliacao e o saldo dependem disso —
+          // e preservamos o sentido separadamente em debito_credito (de BCOHISTO).
+          // Antes o D/C ficava sempre null (comentario antigo assumia valor sempre
+          // positivo, o que e falso pra despesas): assim somas que dependem do sinal
+          // (ex.: pagamentos diretos no banco com estornos) ficavam impossiveis.
           const valorAbs = Math.abs(raw.VALOR ?? 0);
-          // O Globus armazena valor SEMPRE positivo; o sentido (D/C) e implicito
-          // pelo CODHISTOBCO (entrada ou saida). Sem isso, deixamos null.
-          const debitoCredito: string | null = null;
+          const dc = raw.DEBITO_CREDITO?.trim().toUpperCase();
+          const debitoCredito: string | null = dc === 'D' || dc === 'C' ? dc : null;
 
           await movtoRepo
             .createQueryBuilder()
@@ -86,6 +91,8 @@ export function buildBancoMovtoEtl(fastify: FastifyInstance) {
               dataEfetiva: dataIsoSpOuNull(raw.DATA_EFETIVA),
               dataCredito: dataIsoSpOuNull(raw.DATA_CREDITO),
               valorCents: brlToCents(valorAbs),
+              // Sinal preservado (efeito no saldo): + entrou, − saiu. Base do extrato.
+              efeitoSaldoCents: raw.VALOR != null ? String(Math.round(raw.VALOR * 100)) : null,
               codHistoBco: raw.COD_HISTO_BCO,
               descHistoBco: raw.DESC_HISTO_BCO,
               histMovtoBco: raw.HIST_MOVTO_BCO,
@@ -106,7 +113,8 @@ export function buildBancoMovtoEtl(fastify: FastifyInstance) {
               [
                 'codigo_fl', 'cod_banco', 'cod_agencia', 'cod_conta_bco',
                 'data_movto', 'data_efetiva', 'data_credito',
-                'valor_cents', 'cod_histo_bco', 'desc_histo_bco', 'hist_movto_bco', 'doc_movto_bco',
+                'valor_cents', 'efeito_saldo_cents', 'cod_histo_bco', 'desc_histo_bco', 'hist_movto_bco', 'doc_movto_bco',
+                'debito_credito',
                 'confirmado', 'conciliado', 'status_movto',
                 'cod_tp_despesa', 'cod_tp_receita', 'cod_custo',
                 'eh_repasse_brb', 'ultimo_sync_em', 'atualizado_em',

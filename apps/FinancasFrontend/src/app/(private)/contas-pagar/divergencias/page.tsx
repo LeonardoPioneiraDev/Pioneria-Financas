@@ -83,10 +83,10 @@ export default function DivergenciasRetencaoPage() {
       <div>
         <h1 className="text-3xl font-bold bg-gradient-to-r from-pioneira-900 via-pioneira-800 to-pioneira-900 dark:from-yellow-300 dark:via-yellow-200 dark:to-yellow-300 bg-clip-text text-transparent flex items-center gap-3">
           <Receipt className="h-7 w-7 text-pioneira-700 dark:text-yellow-400" />
-          Divergencias de Retencao
+          Divergências de Retenção
         </h1>
         <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">
-          Conferencia automatica entre valor retido (Globus) e esperado pela legislacao.
+          Conferência automática entre valor retido (Globus) e esperado pela legislação.
         </p>
       </div>
 
@@ -96,13 +96,13 @@ export default function DivergenciasRetencaoPage() {
           <Info className="h-5 w-5 text-amber-700 dark:text-amber-300 shrink-0 mt-0.5" />
           <div className="text-sm leading-relaxed text-gray-700 dark:text-gray-200 space-y-1">
             <p>
-              <strong className="text-amber-800 dark:text-amber-200">Versao em validacao com financeiro:</strong>{' '}
-              heuristica Lucro Real generica pra NF de servico PJ. Casos especiais (Simples Nacional,
-              MEI, exterior, servicos especificos) precisam tratamento dedicado.
+              <strong className="text-amber-800 dark:text-amber-200">Versão em validação com financeiro:</strong>{' '}
+              heurística Lucro Real genérica pra NF de serviço PJ. Casos especiais (Simples Nacional,
+              MEI, exterior, serviços específicos) precisam tratamento dedicado.
             </p>
             {aliquotas.data && (
               <p className="text-xs">
-                <strong>Aliquotas aplicadas:</strong> PIS {aliquotas.data.perc.pis}% ·
+                <strong>Alíquotas aplicadas:</strong> PIS {aliquotas.data.perc.pis}% ·
                 COFINS {aliquotas.data.perc.cofins}% ·
                 CSLL {aliquotas.data.perc.csll}% ·
                 IRRF {aliquotas.data.perc.irrf}% (acima de {moeda(aliquotas.data.valorMinimoIrrfCents)})
@@ -115,11 +115,11 @@ export default function DivergenciasRetencaoPage() {
       {/* Resumo */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <Card className="p-4">
-          <p className="text-xs uppercase tracking-wider text-gray-500 font-bold">Titulos com divergencia</p>
+          <p className="text-xs uppercase tracking-wider text-gray-500 font-bold">Títulos com divergência</p>
           <p className="text-3xl font-bold mt-1">{div.data?.total ?? 0}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-xs uppercase tracking-wider text-gray-500 font-bold">Total divergencias (modulo)</p>
+          <p className="text-xs uppercase tracking-wider text-gray-500 font-bold">Total divergências (módulo)</p>
           <p className="text-3xl font-bold mt-1 text-amber-700 dark:text-amber-400">
             {moeda(div.data?.totalDivergenciaCents ?? 0)}
           </p>
@@ -134,17 +134,17 @@ export default function DivergenciasRetencaoPage() {
       {div.isLoading && (
         <Card className="p-10 text-center">
           <Loader2 className="h-6 w-6 animate-spin mx-auto text-pioneira-600" />
-          <p className="mt-2 text-sm text-gray-500">Calculando divergencias (pode demorar uns segundos)...</p>
+          <p className="mt-2 text-sm text-gray-500">Calculando divergências (pode demorar uns segundos)...</p>
         </Card>
       )}
 
       {!div.isLoading && itens.length === 0 && (
         <Card className="p-10 text-center space-y-3">
           <Receipt className="h-10 w-10 mx-auto text-emerald-600" />
-          <h3 className="text-lg font-semibold">Sem divergencias detectadas</h3>
+          <h3 className="text-lg font-semibold">Sem divergências detectadas</h3>
           <p className="text-sm text-gray-500 max-w-md mx-auto">
-            Todas as NFs analisadas tem retencoes batendo com a aliquota esperada
-            (tolerancia 1 centavo).
+            Todas as NFs analisadas têm retenções batendo com a alíquota esperada
+            (tolerância 1 centavo).
           </p>
         </Card>
       )}
@@ -180,7 +180,7 @@ export default function DivergenciasRetencaoPage() {
                   <div className="text-sm font-mono">{moeda(cp.valorBrutoCents)}</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-xs text-gray-500">Divergencia</div>
+                  <div className="text-xs text-gray-500">Divergência</div>
                   <div className={cn('text-sm font-mono', classeDivergencia(cp.divergenciaTotalCents))}>
                     {moeda(Math.abs(cp.divergenciaTotalCents))}
                   </div>
@@ -201,10 +201,10 @@ export default function DivergenciasRetencaoPage() {
                     <thead>
                       <tr className="text-gray-500 dark:text-gray-400 uppercase">
                         <th className="text-left py-1 pr-2">Tributo</th>
-                        <th className="text-right py-1 pr-2">Aliquota</th>
+                        <th className="text-right py-1 pr-2">Alíquota</th>
                         <th className="text-right py-1 pr-2">Esperado</th>
                         <th className="text-right py-1 pr-2">Retido (Globus)</th>
-                        <th className="text-right py-1 pr-2">Diferenca</th>
+                        <th className="text-right py-1 pr-2">Diferença</th>
                         <th className="text-left py-1">Status</th>
                       </tr>
                     </thead>

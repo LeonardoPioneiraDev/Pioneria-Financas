@@ -17,13 +17,13 @@ export async function registrarAcesso(params: RegistrarParams): Promise<void> {
   try {
     await api.post('/api/audit/acessou', params);
   } catch {
-    // fire-and-forget - falha de log nao afeta o usuario
+    // fire-and-forget - falha de log não afeta o usuário
   }
 }
 
 /**
  * Registra `visualizou` automaticamente quando o componente monta com `enabled=true`.
- * Util para paginas e dialogs de detalhe.
+ * Útil para páginas e dialogs de detalhe.
  */
 export function useAuditView(params: RegistrarParams & { enabled?: boolean }) {
   const jaRegistrado = useRef(false);
@@ -44,7 +44,7 @@ export function useAuditView(params: RegistrarParams & { enabled?: boolean }) {
 }
 
 /**
- * Intercepta Ctrl+P, Cmd+P e window.print() registrando `imprimiu` antes do dialogo nativo.
+ * Intercepta Ctrl+P, Cmd+P e window.print() registrando `imprimiu` antes do diálogo nativo.
  */
 export function useTrackPrint(params: { recurso: string; recursoId?: string }) {
   useEffect(() => {

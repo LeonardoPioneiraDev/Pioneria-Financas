@@ -25,7 +25,8 @@ const TEMPLATES: SeedTemplate[] = [
   {
     nome: 'Conta a Pagar - Padrao',
     documentoTipo: 'conta_pagar',
-    descricao: 'Marcos reais rastreados pelo Globus (CPGDOCTO). Sem etapas inferidas.',
+    descricao:
+      'Marcos reais rastreados pelo Globus (CPGDOCTO). Sem etapas inferidas. A ultima etapa e a baixa no ERP, nao a autorizacao bancaria.',
     etapas: [
       {
         ordem: 1,
@@ -40,7 +41,7 @@ const TEMPLATES: SeedTemplate[] = [
         ordem: 2,
         chave: 'liberacao_pagto',
         nome: 'Liberacao de pagamento',
-        descricao: 'APROVE ME: titulo liberado para pagamento (analisado e aprovado).',
+        descricao: 'APROVE ME: titulo analisado e liberado para pagamento.',
         papelResponsavel: 'controller',
         icone: 'ShieldCheck',
         cor: 'purple',
@@ -57,8 +58,9 @@ const TEMPLATES: SeedTemplate[] = [
       {
         ordem: 4,
         chave: 'pagamento',
-        nome: 'Pagamento efetivo',
-        descricao: 'Baixa bancaria registrada (PAGAMENTOCPG + QUITADO=S).',
+        nome: 'Baixa no Globus',
+        descricao:
+          'Registro da baixa no ERP — quem lancou o titulo como pago no sistema. NAO identifica quem autorizou o pagamento no banco: o Globus nao guarda esse dado.',
         papelResponsavel: 'cp_analista',
         icone: 'Banknote',
         cor: 'emerald',

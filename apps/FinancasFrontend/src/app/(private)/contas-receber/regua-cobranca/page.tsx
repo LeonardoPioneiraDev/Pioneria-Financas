@@ -46,7 +46,7 @@ function dataHoraFmt(d: string): string {
 function gatilhoLabel(dias: number): string {
   if (dias < 0) return `${Math.abs(dias)}d ANTES do vencimento`;
   if (dias === 0) return 'NO DIA do vencimento';
-  return `${dias}d APOS o vencimento`;
+  return `${dias}d APÓS o vencimento`;
 }
 
 type Aba = 'templates' | 'historico';
@@ -72,7 +72,7 @@ export default function ReguaCobrancaPage() {
     onSuccess: (r) => {
       toast.success(
         `${r.enviosGerados} envios gerados de ${r.crsAnalisados} CRs (${r.duracaoMs}ms)`,
-        { description: r.enviosPulados > 0 ? `${r.enviosPulados} pulados (ja enviados hoje)` : undefined },
+        { description: r.enviosPulados > 0 ? `${r.enviosPulados} pulados (já enviados hoje)` : undefined },
       );
       qc.invalidateQueries({ queryKey: ['regua-cobranca'] });
     },
@@ -100,10 +100,10 @@ export default function ReguaCobrancaPage() {
         <div>
           <h1 className="text-3xl font-bold bg-gradient-to-r from-pioneira-900 via-pioneira-800 to-pioneira-900 dark:from-yellow-300 dark:via-yellow-200 dark:to-yellow-300 bg-clip-text text-transparent flex items-center gap-3">
             <Bell className="h-7 w-7 text-pioneira-700 dark:text-yellow-400" />
-            Regua de Cobranca
+            Régua de Cobrança
           </h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">
-            Templates configuraveis pra enviar comunicacoes automatizadas conforme dias vencidos.
+            Templates configuráveis pra enviar comunicações automatizadas conforme dias vencidos.
           </p>
         </div>
         <div className="flex gap-2">
@@ -121,9 +121,9 @@ export default function ReguaCobrancaPage() {
         <div className="flex items-start gap-3">
           <Info className="h-5 w-5 text-amber-700 dark:text-amber-300 shrink-0 mt-0.5" />
           <div className="text-sm text-gray-700 dark:text-gray-200">
-            <strong className="text-amber-800 dark:text-amber-200">Versao em validacao com financeiro:</strong>{' '}
-            modo SIMULADO — envios sao registrados no banco (log de auditoria) mas nenhum email/WhatsApp eh
-            enviado de verdade. Apos confirmar provedor (Mailhog ja funciona em dev; WhatsApp Business depende
+            <strong className="text-amber-800 dark:text-amber-200">Versão em validação com financeiro:</strong>{' '}
+            modo SIMULADO — envios são registrados no banco (log de auditoria) mas nenhum email/WhatsApp é
+            enviado de verdade. Após confirmar provedor (Mailhog já funciona em dev; WhatsApp Business depende
             de contrato Twilio/Zenvia), trocamos pra modo &apos;real&apos;.
           </div>
         </div>
@@ -136,7 +136,7 @@ export default function ReguaCobrancaPage() {
           <p className="text-[10px] text-gray-500">{ativos} ativos</p>
         </Card>
         <Card className="p-4">
-          <p className="text-xs uppercase tracking-wider text-gray-500 font-bold">Envios (ultimos 200)</p>
+          <p className="text-xs uppercase tracking-wider text-gray-500 font-bold">Envios (últimos 200)</p>
           <p className="text-3xl font-bold mt-1">{enviosList.length}</p>
         </Card>
       </div>
@@ -144,7 +144,7 @@ export default function ReguaCobrancaPage() {
       <Tabs value={aba} onValueChange={(v) => setAba(v as Aba)}>
         <TabsList>
           <TabsTrigger value="templates" icon={<Bell className="h-3.5 w-3.5" />}>Templates</TabsTrigger>
-          <TabsTrigger value="historico" icon={<Mail className="h-3.5 w-3.5" />}>Historico</TabsTrigger>
+          <TabsTrigger value="historico" icon={<Mail className="h-3.5 w-3.5" />}>Histórico</TabsTrigger>
         </TabsList>
 
         <TabsContent value="templates" className="space-y-3">
@@ -203,8 +203,8 @@ export default function ReguaCobrancaPage() {
               <Mail className="h-10 w-10 mx-auto text-gray-400" />
               <h3 className="text-lg font-semibold">Sem envios ainda</h3>
               <p className="text-sm text-gray-500 max-w-md mx-auto">
-                Clique em <strong>&quot;Simular envios agora&quot;</strong> pra rodar a regua com a base atual de CRs.
-                Templates ativos com gatilho que bata com dias_vencidos sao disparados.
+                Clique em <strong>&quot;Simular envios agora&quot;</strong> pra rodar a régua com a base atual de CRs.
+                Templates ativos com gatilho que bata com dias_vencidos são disparados.
               </p>
             </Card>
           )}
@@ -274,7 +274,7 @@ function TemplateModal({
     canal: template?.canal ?? 'email',
     gatilhoDiasVencimento: template?.gatilhoDiasVencimento ?? 5,
     assunto: template?.assunto ?? '',
-    corpoTemplate: template?.corpoTemplate ?? 'Ola {{nome_cliente}},\n\nO titulo {{numero_documento}} ({{valor}}) venceu em {{data_vencimento}}.\n\nViacao Pioneira',
+    corpoTemplate: template?.corpoTemplate ?? 'Olá {{nome_cliente}},\n\nO título {{numero_documento}} ({{valor}}) venceu em {{data_vencimento}}.\n\nViação Pioneira',
     ativo: template?.ativo ?? true,
     tom: template?.tom ?? 'cordial',
   });
@@ -299,7 +299,7 @@ function TemplateModal({
         <DialogHeader>
           <DialogTitle>{template ? 'Editar template' : 'Novo template'}</DialogTitle>
           <DialogDescription>
-            Variaveis disponiveis: {'{{nome_cliente}}'}, {'{{numero_documento}}'}, {'{{valor}}'},{' '}
+            Variáveis disponíveis: {'{{nome_cliente}}'}, {'{{numero_documento}}'}, {'{{valor}}'},{' '}
             {'{{data_vencimento}}'}, {'{{dias_vencidos}}'}, {'{{link_pix}}'}, {'{{link_boleto}}'}
           </DialogDescription>
         </DialogHeader>
@@ -308,7 +308,7 @@ function TemplateModal({
           <Input
             value={form.nome}
             onChange={(e) => setForm({ ...form, nome: e.target.value })}
-            placeholder="Nome (ex: 1a cobranca - 5 dias)"
+            placeholder="Nome (ex: 1ª cobrança - 5 dias)"
           />
           <div className="grid grid-cols-3 gap-2">
             <select
@@ -346,7 +346,7 @@ function TemplateModal({
             onChange={(e) => setForm({ ...form, corpoTemplate: e.target.value })}
             rows={10}
             className="w-full text-sm font-mono rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 p-2"
-            placeholder="Corpo da mensagem com variaveis {{nome_cliente}}, {{valor}}..."
+            placeholder="Corpo da mensagem com variáveis {{nome_cliente}}, {{valor}}..."
           />
           <label className="flex items-center gap-2 text-sm">
             <input
@@ -354,7 +354,7 @@ function TemplateModal({
               checked={form.ativo ?? true}
               onChange={(e) => setForm({ ...form, ativo: e.target.checked })}
             />
-            Ativo (roda na regua diaria)
+            Ativo (roda na régua diária)
           </label>
         </div>
 

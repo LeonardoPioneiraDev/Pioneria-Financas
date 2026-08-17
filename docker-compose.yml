@@ -95,14 +95,49 @@ services:
       SMTP_SECURE: ${SMTP_SECURE:-false}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Pioneira Financas}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Pioneira Finanças}
       SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-nao-responda@vpioneira.com.br}
       APP_URL: ${APP_URL:-http://localhost:3001}
+      # Sem isto, o backend só libera automaticamente IP de rede privada (RFC1918).
+      # Só é obrigatório setar no .env.docker quando o acesso vier de um domínio público.
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       METRICS_EXCLUDED_PATHS: /health,/docs,/api/metrics/page-view
-      # ⚠ Oracle/Globus DESLIGADO por padrão no Docker (sem acesso à rede da empresa).
-      # Para habilitar, precisa de Instant Client + acesso ao Oracle 10.0.1.191.
+      # ⚠ Oracle/Globus: o Instant Client já está na imagem (ORACLE_CLIENT_PATH baked no Dockerfile).
+      # Para habilitar: ORACLE_ENABLED=true + credenciais no .env — e o container precisa de
+      # ROTA até o Oracle 10.0.1.191 (rede/VPN da empresa). Desligado por padrão.
       ORACLE_ENABLED: ${ORACLE_ENABLED:-false}
+      # SEMPRE o caminho do CONTAINER (Linux). Nunca herda o ORACLE_CLIENT_PATH do .env (que é Windows p/ dev).
+      ORACLE_CLIENT_PATH: /opt/oracle/instantclient
+      ORACLE_HOST: ${ORACLE_HOST:-}
+      ORACLE_PORT: ${ORACLE_PORT:-1521}
+      ORACLE_SERVICE_NAME: ${ORACLE_SERVICE_NAME:-}
+      ORACLE_USER: ${ORACLE_USER:-}
+      ORACLE_PASSWORD: ${ORACLE_PASSWORD:-}
+      # Pool/timeouts — mesmo tuning do .env de dev (rede OCI lenta). Repassar explicitamente
+      # em vez de confiar no default do código: se um dia divergirem, quebra em silêncio.
+      ORACLE_POOL_MIN: ${ORACLE_POOL_MIN:-5}
+      ORACLE_POOL_MAX: ${ORACLE_POOL_MAX:-50}
+      ORACLE_POOL_INCREMENT: ${ORACLE_POOL_INCREMENT:-2}
+      ORACLE_POOL_TIMEOUT: ${ORACLE_POOL_TIMEOUT:-18000000}
+      ORACLE_CONNECT_TIMEOUT: ${ORACLE_CONNECT_TIMEOUT:-1800000}
+      ORACLE_QUERY_TIMEOUT: ${ORACLE_QUERY_TIMEOUT:-18000000}
+      ORACLE_FETCH_ARRAY_SIZE: ${ORACLE_FETCH_ARRAY_SIZE:-2000}
+      ORACLE_PREFETCH_ROWS: ${ORACLE_PREFETCH_ROWS:-200}
+      ORACLE_MAX_RETRIES: ${ORACLE_MAX_RETRIES:-3}
+      ORACLE_RETRY_DELAY: ${ORACLE_RETRY_DELAY:-5000}
+      EMPRESA_GLOBUS_ID: ${EMPRESA_GLOBUS_ID:-4}
+      EMPRESA_GLOBUS_FILIAL: ${EMPRESA_GLOBUS_FILIAL:-1}
+      EMPRESA_GLOBUS_FILIAIS: ${EMPRESA_GLOBUS_FILIAIS:-1,5,6,17,19}
+      # Integração horarios.vpioneira.com.br — usada pelo sync "Receita TD Max (bilhetagem)".
+      HORARIOS_ENABLED: ${HORARIOS_ENABLED:-false}
+      HORARIOS_API_URL: ${HORARIOS_API_URL:-https://horarios.vpioneira.com.br}
+      HORARIOS_API_KEY: ${HORARIOS_API_KEY:-}
+      HORARIOS_TIMEOUT_MS: ${HORARIOS_TIMEOUT_MS:-30000}
+      HORARIOS_MAX_RETRIES: ${HORARIOS_MAX_RETRIES:-3}
+      HORARIOS_RETRY_DELAY_MS: ${HORARIOS_RETRY_DELAY_MS:-2000}
+      # Chave que o sistema emite pra terceiros consumirem nosso endpoint receita:read.
+      RECEITA_TDMAX_API_KEY: ${RECEITA_TDMAX_API_KEY:-}
     ports:
       - "${BACKEND_PORT_HOST:-3333}:3333"
     depends_on:
@@ -119,7 +154,7 @@ services:
         # ⚠ NEXT_PUBLIC_* é "baked" no build do Next.js. Define no .env antes de buildar
         # ou passe via --build-arg.
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3333}
-        NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-Pioneira Financas}
+        NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-Pioneira Finanças}
     image: pioneira/financas-frontend:latest
     container_name: pioneira-financas-frontend
     restart: unless-stopped

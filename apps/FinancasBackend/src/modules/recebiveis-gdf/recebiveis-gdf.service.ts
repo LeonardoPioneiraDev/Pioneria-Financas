@@ -13,8 +13,8 @@ import { buildRecebiveisGdfEtl } from '@/etl/recebiveis-gdf.etl.js';
 import { buildBancoMovtoEtl } from '@/etl/banco-movto.etl.js';
 
 /**
- * Service de Recebíveis GDF — consulta dados agregados das celulas e dispara
- * sync/ETL da API horarios.
+ * Service de Recebíveis GDF — consulta dados agregados das células e dispara
+ * sync/ETL da API horários.
  */
 
 interface CelulaAgg {
@@ -61,7 +61,7 @@ export function buildRecebiveisGdfService(fastify: FastifyInstance) {
         params,
       );
 
-      // Tambem agrega anteriores ao periodo (transp < dtIni mas resgate dentro)
+      // Também agrega anteriores ao período (transp < dtIni mas resgate dentro)
       const anterioresParams: unknown[] = [args.dtIni, args.dtFim];
       if (args.familia) anterioresParams.push(args.familia);
       const anteriores = await celulaRepo.query<CelulaAgg[]>(
@@ -140,10 +140,10 @@ export function buildRecebiveisGdfService(fastify: FastifyInstance) {
         });
       }
 
-      // Total = SO dias de transporte DENTRO do periodo (igual ao v1 / Controle de
-      // Horarios). A linha "anteriores" (transporte antes do filtro, resgatado
-      // dentro) aparece na matriz, mas NAO entra no headline — senao o total supera
-      // o v1 pelos resgates de transportes anteriores ao periodo.
+      // Total = SÓ dias de transporte DENTRO do período (igual ao v1 / Controle de
+      // Horários). A linha "anteriores" (transporte antes do filtro, resgatado
+      // dentro) aparece na matriz, mas NÃO entra no headline — senão o total supera
+      // o v1 pelos resgates de transportes anteriores ao período.
       const linhasReais = linhas.filter((l) => l.status !== 'anteriores');
       const totalValor = linhasReais.reduce((s, l) => s + l.totalCents, 0);
       const totalCreditos = linhasReais.reduce((s, l) => s + l.totalCreditos, 0);
@@ -303,7 +303,7 @@ export function buildRecebiveisGdfService(fastify: FastifyInstance) {
       };
     },
 
-    /** Lista familias do mestre, ordenadas por pagantes primeiro. */
+    /** Lista famílias do mestre, ordenadas por pagantes primeiro. */
     async listarFamilias() {
       const rows = await familiaRepo.find({ order: { ordem: 'ASC' } });
       return rows.map((f) => ({
@@ -317,13 +317,13 @@ export function buildRecebiveisGdfService(fastify: FastifyInstance) {
 
     /**
      * Sync completo:
-     *   1. API horarios → stage relatorios → ETL celulas (esperado BRB)
-     *   2. Globus BCOMOVTO → stage → ETL banco_movto (com classificacao repasse_brb)
+     *   1. API horários → stage relatórios → ETL células (esperado BRB)
+     *   2. Globus BCOMOVTO → stage → ETL banco_movto (com classificação repasse_brb)
      *
-     * Roda em sequencia. Se o passo 1 falhar, ainda tenta o 2 (sao independentes).
+     * Roda em sequência. Se o passo 1 falhar, ainda tenta o 2 (são independentes).
      */
     async sincronizar(usuarioId: string): Promise<SyncHorariosResponse> {
-      // ====== Lado 1: BRB (horarios) ======
+      // ====== Lado 1: BRB (horários) ======
       const sync = await adapter.sincronizarLista({ usuarioId });
       let etlGravadas = 0;
       let etlProcessados = 0;
@@ -338,7 +338,7 @@ export function buildRecebiveisGdfService(fastify: FastifyInstance) {
       }
 
       // ====== Lado 2: Banco (Globus BCOMOVTO) ======
-      // Janela: mes corrente (regra empresa=4 + mes atual)
+      // Janela: mês corrente (regra empresa=4 + mês atual)
       const hoje = new Date();
       const dtInicio = new Date(Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth(), 1));
       const dtFimExclusivo = new Date(Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth() + 1, 1));
@@ -365,7 +365,7 @@ export function buildRecebiveisGdfService(fastify: FastifyInstance) {
           bancoMs += etlBanco.duracaoMs;
         }
       } catch (err) {
-        fastify.log.warn({ err }, '[recebiveis-gdf] sync banco_movto falhou (lado BRB continua valido)');
+        fastify.log.warn({ err }, '[recebiveis-gdf] sync banco_movto falhou (lado BRB continua válido)');
       }
 
       return {

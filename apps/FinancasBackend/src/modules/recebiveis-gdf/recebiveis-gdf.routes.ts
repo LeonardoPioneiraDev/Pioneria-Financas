@@ -13,7 +13,7 @@ import { buildRecebiveisGdfService } from './recebiveis-gdf.service.js';
 export const recebiveisGdfModule: FastifyPluginAsyncTypebox = async (fastify) => {
   const service = buildRecebiveisGdfService(fastify);
 
-  // Acesso: admin, cfo, controller (visao de receita), cr_analista (cobrança)
+  // Acesso: admin, cfo, controller (visão de receita), cr_analista (cobrança)
   const auth = fastify.requireRole('admin', 'cfo', 'controller', 'cr_analista');
 
   fastify.get(
@@ -22,7 +22,7 @@ export const recebiveisGdfModule: FastifyPluginAsyncTypebox = async (fastify) =>
       preHandler: [auth],
       schema: {
         tags: ['recebiveis-gdf'],
-        summary: 'Mapa diario: matriz (data_transporte × data_resgate) do Movimento Resgatado BRB',
+        summary: 'Mapa diário: matriz (data_transporte × data_resgate) do Movimento Resgatado BRB',
         querystring: MapaDiarioQuerySchema,
         response: { 200: MapaDiarioResponseSchema },
         security: [{ bearerAuth: [] }],
@@ -37,7 +37,7 @@ export const recebiveisGdfModule: FastifyPluginAsyncTypebox = async (fastify) =>
       preHandler: [auth],
       schema: {
         tags: ['recebiveis-gdf'],
-        summary: 'Drill-down por familia (pagantes × gratuidades) de UM dia de transporte',
+        summary: 'Drill-down por família (pagantes × gratuidades) de UM dia de transporte',
         querystring: ComposicaoFamiliaQuerySchema,
         response: { 200: ComposicaoFamiliaResponseSchema },
         security: [{ bearerAuth: [] }],
@@ -71,7 +71,7 @@ export const recebiveisGdfModule: FastifyPluginAsyncTypebox = async (fastify) =>
       preHandler: [auth],
       schema: {
         tags: ['recebiveis-gdf'],
-        summary: 'Lista mestre de familias (pagantes + gratuidades)',
+        summary: 'Lista mestre de famílias (pagantes + gratuidades)',
         response: {
           200: Type.Array(
             Type.Object({
@@ -92,10 +92,12 @@ export const recebiveisGdfModule: FastifyPluginAsyncTypebox = async (fastify) =>
   fastify.post(
     '/sincronizar',
     {
-      preHandler: [fastify.requireRole('admin', 'controller')],
+      // TEMPORÁRIO (fase de desenvolvimento/validação): liberado pra qualquer usuário logado.
+      // Reverter para fastify.requireAdmin antes de produção.
+      preHandler: [fastify.authRequired],
       schema: {
         tags: ['recebiveis-gdf'],
-        summary: 'Dispara sync da API horarios + ETL dos relatorios pendentes',
+        summary: 'Dispara sync da API horários + ETL dos relatórios pendentes',
         response: { 200: SyncHorariosResponseSchema },
         security: [{ bearerAuth: [] }],
       },

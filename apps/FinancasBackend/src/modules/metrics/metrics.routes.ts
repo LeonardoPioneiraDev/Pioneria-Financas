@@ -1,7 +1,9 @@
 import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox';
 import { Type } from '@sinclair/typebox';
+import { MetricsDashboardQuerySchema, MetricsDashboardResponseSchema } from '@pioneira/shared';
 import { UserPageView } from '@/entities/user-page-view.entity.js';
 import { obterIpDoCliente } from '@/shared/utils/client-ip.js';
+import { buildMetricsService } from './metrics.service.js';
 
 const PageViewPayloadSchema = Type.Object({
   sessionId: Type.String({ minLength: 8, maxLength: 80 }),
@@ -13,6 +15,28 @@ const PageViewPayloadSchema = Type.Object({
 
 export const metricsModule: FastifyPluginAsyncTypebox = async (fastify) => {
   const repo = fastify.db.getRepository(UserPageView);
+  const service = buildMetricsService(fastify);
+
+  // Dashboard de métricas de sistema — admin only.
+  fastify.get(
+    '/dashboard',
+    {
+      preHandler: [fastify.requireRole('admin')],
+      schema: {
+        tags: ['metrics'],
+        summary: 'Dashboard consolidado de métricas de sistema (admin)',
+        description:
+          'Agrega request_logs + user_activity_logs por TimeRange (janelas em ' +
+          'America/Sao_Paulo): summary, requests/latência ao longo do tempo, ' +
+          'distribuição de status, top usuários, endpoints mais lentos e picos diários.',
+        querystring: MetricsDashboardQuerySchema,
+        response: { 200: MetricsDashboardResponseSchema },
+        security: [{ bearerAuth: [] }],
+      },
+      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+    },
+    async (req) => service.dashboard(req.query.timeRange ?? 'last_24h'),
+  );
 
   fastify.post(
     '/page-view',
@@ -20,7 +44,7 @@ export const metricsModule: FastifyPluginAsyncTypebox = async (fastify) => {
       preHandler: [fastify.authRequired],
       schema: {
         tags: ['metrics'],
-        summary: 'Registra uma visualizacao de pagina (fire-and-forget)',
+        summary: 'Registra uma visualização de página (fire-and-forget)',
         body: PageViewPayloadSchema,
         response: { 202: Type.Object({ accepted: Type.Boolean() }) },
         security: [{ bearerAuth: [] }],

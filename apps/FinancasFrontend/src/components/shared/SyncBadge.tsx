@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import { Clock, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { usePodeSincronizar } from '@/hooks/usePodeSincronizar';
 
 interface SyncBadgeProps {
   ultimoSyncEm: string | null;
@@ -28,6 +29,9 @@ function formatarRelativo(iso: string | null): string {
 }
 
 export function SyncBadge({ ultimoSyncEm, status, totalLocal, onSync, sincronizando }: SyncBadgeProps) {
+  // A informação (quantos registros, de quando) fica para todos — é transparência
+  // sobre a idade do dado. Só o BOTÃO é de administrador.
+  const podeSincronizar = usePodeSincronizar();
   const relativo = useMemo(() => formatarRelativo(ultimoSyncEm), [ultimoSyncEm]);
   const corStatus = status === 'ok' ? 'text-emerald-600 dark:text-emerald-400' : status === 'erro' ? 'text-red-500 dark:text-red-400' : 'text-gray-500 dark:text-gray-400';
 
@@ -39,10 +43,12 @@ export function SyncBadge({ ultimoSyncEm, status, totalLocal, onSync, sincroniza
           <span className="font-medium">{totalLocal.toLocaleString('pt-BR')}</span> registros - sincronizado <span className={corStatus}>{relativo}</span>
         </span>
       </div>
-      <Button variant="ghost" size="sm" onClick={onSync} disabled={sincronizando} className="h-7 text-xs">
-        {sincronizando ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-        <span>{sincronizando ? 'Sincronizando' : 'Sincronizar'}</span>
-      </Button>
+      {podeSincronizar && (
+        <Button variant="ghost" size="sm" onClick={onSync} disabled={sincronizando} className="h-7 text-xs">
+          {sincronizando ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          <span>{sincronizando ? 'Sincronizando' : 'Sincronizar'}</span>
+        </Button>
+      )}
     </div>
   );
 }

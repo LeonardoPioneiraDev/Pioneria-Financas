@@ -2,21 +2,21 @@ import type { FastifyInstance } from 'fastify';
 import { SyncError } from '@/entities/sync-error.entity.js';
 
 /**
- * Servico admin para inspecao e operacao da integracao Globus.
+ * Serviço admin para inspeção e operação da integração Globus.
  *
- * Tres areas:
- *  1. Visao consolidada (dashboard)
- *  2. Gerencia da DLQ (`sync_errors`)
+ * Três áreas:
+ *  1. Visão consolidada (dashboard)
+ *  2. Gerência da DLQ (`sync_errors`)
  *  3. Telemetria Oracle (`oracle_query_logs`)
  */
 export function buildAdminIntegracoesService(fastify: FastifyInstance) {
   const errorRepo = fastify.db.getRepository(SyncError);
 
   return {
-    /** Visao geral: ultimos jobs, DLQ pendente, queries lentas. */
+    /** Visão geral: últimos jobs, DLQ pendente, queries lentas. */
     async dashboard() {
       const [ultimosJobs, dlqPorRecurso, queriesLentas, queriesComErro, totalDlqPendente] = await Promise.all([
-        // Ultimos 20 sync_jobs ordenados por inicio
+        // Últimos 20 sync_jobs ordenados por início
         fastify.db.query<Array<{
           id: string;
           sistema: string;
@@ -44,7 +44,7 @@ export function buildAdminIntegracoesService(fastify: FastifyInstance) {
             GROUP BY sistema, recurso
             ORDER BY COUNT(*) DESC`,
         ),
-        // Top 10 queries mais lentas nas ultimas 24h
+        // Top 10 queries mais lentas nas últimas 24h
         fastify.db.query<Array<{
           query_name: string;
           p50_ms: string;
@@ -64,7 +64,7 @@ export function buildAdminIntegracoesService(fastify: FastifyInstance) {
             ORDER BY PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duracao_ms) DESC NULLS LAST
             LIMIT 10`,
         ),
-        // Queries com erro nas ultimas 24h
+        // Queries com erro nas últimas 24h
         fastify.db.query<Array<{ query_name: string; qtd: string; ultimo_erro: string }>>(
           `SELECT query_name, COUNT(*)::text AS qtd, MAX(erro_mensagem) AS ultimo_erro
              FROM integration.oracle_query_logs
@@ -224,7 +224,7 @@ export function buildAdminIntegracoesService(fastify: FastifyInstance) {
       );
       const r = rows[0];
       if (!r) {
-        throw fastify.httpErrors.notFound(`Erro ${id} nao encontrado`);
+        throw fastify.httpErrors.notFound(`Erro ${id} não encontrado`);
       }
       return {
         id: r.id,
@@ -246,7 +246,7 @@ export function buildAdminIntegracoesService(fastify: FastifyInstance) {
     },
 
     /**
-     * Drill-down de UM registro: vai do stage raw ate o domain em finance,
+     * Drill-down de UM registro: vai do stage raw até o domain em finance,
      * incluindo sync_jobs que o tocaram e erros DLQ associados.
      *
      * Recursos suportados:
@@ -316,7 +316,7 @@ export function buildAdminIntegracoesService(fastify: FastifyInstance) {
       }
 
       if (!stage && !finance) {
-        throw fastify.httpErrors.notFound(`Registro ${recurso}/${origemIdExterno} nao encontrado no stage nem em finance`);
+        throw fastify.httpErrors.notFound(`Registro ${recurso}/${origemIdExterno} não encontrado no stage nem em finance`);
       }
 
       // Sync jobs que tocaram esse registro (busca pelo sync_job_id do stage)
@@ -389,13 +389,13 @@ export function buildAdminIntegracoesService(fastify: FastifyInstance) {
         [id, usuarioId],
       );
       if (result.length === 0) {
-        // Pode nao existir ou ja estar resolvido
+        // Pode não existir ou já estar resolvido
         const existe = await errorRepo.query<Array<{ id: string }>>(
           `SELECT id FROM integration.sync_errors WHERE id = $1`,
           [id],
         );
         if (existe.length === 0) {
-          throw fastify.httpErrors.notFound(`Erro ${id} nao encontrado`);
+          throw fastify.httpErrors.notFound(`Erro ${id} não encontrado`);
         }
         return { id, jaResolvido: true };
       }

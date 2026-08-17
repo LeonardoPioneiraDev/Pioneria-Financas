@@ -18,6 +18,8 @@ export interface RawBcoMovtoRow {
   VALOR: number;
   COD_HISTO_BCO: number | null;
   DESC_HISTO_BCO: string | null;
+  /** Sentido do movimento ('D'=debito/saida, 'C'=credito/entrada), de BCOHISTO. */
+  DEBITO_CREDITO: string | null;
   HIST_MOVTO_BCO: string | null;
   DOC_MOVTO_BCO: string | null;
   CONFIRMADO: string | null;

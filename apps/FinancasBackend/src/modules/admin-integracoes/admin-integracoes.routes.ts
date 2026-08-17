@@ -98,7 +98,7 @@ export const adminIntegracoesModule: FastifyPluginAsyncTypebox = async (fastify)
         response: {
           200: Type.Object({
             id: Type.String(),
-            jaResolvido: Type.Boolean({ description: 'true se ja estava resolvido antes' }),
+            jaResolvido: Type.Boolean({ description: 'true se já estava resolvido antes' }),
           }),
         },
         security: [{ bearerAuth: [] }],

@@ -5,20 +5,45 @@ import type {
   ConciliacaoResponse,
   ConciliacoesListResponse,
   ContasBancariasResponse,
+  ExtratoMensalQuery,
+  ExtratoMensalResponse,
+  MovimentosQuery,
+  MovimentosResponse,
   MovtoBancoResumo,
   SemParResponse,
   SugerirAgregacaoResponse,
   SugerirResponse,
   TituloCandidato,
   TituloResumo,
+  TituloVinculado,
 } from '@pioneira/shared';
 import { BancoConta } from '@/entities/banco-conta.entity.js';
 import { BancoMovto } from '@/entities/banco-movto.entity.js';
 import { ContaPagar } from '@/entities/conta-pagar.entity.js';
 import { ContaReceber } from '@/entities/conta-receber.entity.js';
 import { Conciliacao, type ConciliacaoStatus } from '@/entities/conciliacao.entity.js';
+import { GLOBUS_QUERIES } from '@/integrations/globus/globus.queries.js';
+import { buildGlobusCpAdapter } from '@/integrations/globus/globus-cp.adapter.js';
+import { buildContasPagarEtl } from '@/etl/contas-pagar.etl.js';
 
 const TOLERANCIA_DIAS = 3;
+
+/**
+ * Um lançamento tem TÍTULO de CP ligado pela chave do Globus
+ * (CPGDOCTO.CODMOVTOBCO → banco_movto.cod_movto_bco). Alias do movto = `m`.
+ */
+const TEM_CP_POR_CODMOVTO_SQL =
+  'EXISTS (SELECT 1 FROM finance.contas_pagar cp WHERE cp.cod_movto_bco = m.cod_movto_bco AND cp.excluido_em IS NULL)';
+
+/**
+ * Um lançamento está IDENTIFICADO quando sabemos a que conta ele corresponde —
+ * seja porque o Globus marcou `conciliado`, seja porque JÁ TEMOS o(s) título(s)
+ * de CP ligados por cod_movto_bco. O flag do Globus fica false em muitos débitos
+ * de borderô que, ainda assim, sabemos exatamente o que pagaram (ex.: BO-011084:
+ * conciliado=false, mas 4 títulos ligados). Sem esta segunda via, 54 dos 78
+ * "sem par" apareciam como não-identificados sem motivo. Alias do movto = `m`.
+ */
+const IDENTIFICADO_SQL = `(m.conciliado = true OR ${TEM_CP_POR_CODMOVTO_SQL})`;
 
 function toMovtoResumo(m: BancoMovto): MovtoBancoResumo {
   return {
@@ -57,7 +82,7 @@ function toTituloFromCr(cr: ContaReceber): TituloResumo {
   };
 }
 
-/** Enriquece um titulo com a diferenca (valor/dias) em relacao ao movto-alvo. */
+/** Enriquece um título com a diferença (valor/dias) em relação ao movto-alvo. */
 function toCandidato(t: TituloResumo, valorMovtoAbs: number, dataMovto: string): TituloCandidato {
   return {
     ...t,
@@ -106,7 +131,7 @@ interface ItemCandidato {
 /**
  * Subset-sum bounded com backtracking + poda.
  * Retorna o PRIMEIRO subconjunto que soma == alvo (±tolerancia).
- * Min 2 items (1-only ja eh coberto pelo match individual).
+ * Min 2 items (1-only já é coberto pelo match individual).
  */
 function encontrarSubset(
   candidatos: ItemCandidato[],
@@ -137,6 +162,8 @@ function encontrarSubset(
 }
 
 export function buildConciliacaoService(fastify: FastifyInstance) {
+  const cpAdapter = buildGlobusCpAdapter(fastify);
+  const cpEtl = buildContasPagarEtl(fastify);
   const movtoRepo = fastify.db.getRepository(BancoMovto);
   const contaRepo = fastify.db.getRepository(BancoConta);
   const cpRepo = fastify.db.getRepository(ContaPagar);
@@ -148,12 +175,19 @@ export function buildConciliacaoService(fastify: FastifyInstance) {
       const [
         movtosTotais,
         movtosConciliados,
+        movtosComTitulo,
+        movtosIdentificados,
         sugeridas,
         confirmadas,
         rejeitadas,
       ] = await Promise.all([
         movtoRepo.createQueryBuilder('m').where('m.excluido_em IS NULL').getCount(),
+        // Marcados como conciliado PELO GLOBUS (mantém o rótulo específico).
         movtoRepo.createQueryBuilder('m').where('m.excluido_em IS NULL').andWhere('m.conciliado = true').getCount(),
+        // Lançamentos com título (CP) já amarrado pelo Globus via cod_movto_bco.
+        movtoRepo.createQueryBuilder('m').where('m.excluido_em IS NULL').andWhere(TEM_CP_POR_CODMOVTO_SQL).getCount(),
+        // IDENTIFICADOS de verdade: conciliado no Globus OU com título ligado.
+        movtoRepo.createQueryBuilder('m').where('m.excluido_em IS NULL').andWhere(IDENTIFICADO_SQL).getCount(),
         conciliacaoRepo.createQueryBuilder('c').where("c.status = 'sugerido'").getCount(),
         conciliacaoRepo.createQueryBuilder('c').where("c.status = 'confirmado'").getCount(),
         conciliacaoRepo.createQueryBuilder('c').where("c.status = 'rejeitado'").getCount(),
@@ -166,17 +200,23 @@ export function buildConciliacaoService(fastify: FastifyInstance) {
         .select('COALESCE(SUM(ABS(m.valor_cents)), 0)', 'total')
         .getRawOne<{ total: string }>();
 
+      // "Sem par" = nem conciliado nem com título ligado. É o que sobra de fato.
       const valorSemPar = await movtoRepo
         .createQueryBuilder('m')
         .where('m.excluido_em IS NULL')
-        .andWhere('m.conciliado = false')
+        .andWhere(`NOT ${IDENTIFICADO_SQL}`)
         .select('COALESCE(SUM(ABS(m.valor_cents)), 0)', 'total')
         .getRawOne<{ total: string }>();
 
       return {
         movtosTotais,
         movtosConciliados,
-        movtosSemPar: movtosTotais - movtosConciliados,
+        movtosSemPar: movtosTotais - movtosIdentificados,
+        movtosComTitulo,
+        // Total identificado (Globus + título) e a fatia que veio SÓ do título —
+        // para a UI explicar "X já têm conta a pagar ligada, mesmo sem o flag".
+        movtosIdentificados,
+        movtosIdentificadosPorTitulo: movtosIdentificados - movtosConciliados,
         conciliacoesSugeridas: sugeridas,
         conciliacoesConfirmadas: confirmadas,
         conciliacoesRejeitadas: rejeitadas,
@@ -186,9 +226,148 @@ export function buildConciliacaoService(fastify: FastifyInstance) {
     },
 
     /**
-     * Contas bancarias com saldo (ancora preenchida pelo tesoureiro) + agregados
+     * Visão Globus (só leitura): lista lançamentos do banco com o(s) título(s)
+     * que o GLOBUS já amarrou (via cod_movto_bco), sem nenhum matching nosso.
+     * status 'identificados' = conciliado no Globus; 'nao_identificados' = não.
+     * Onde o Globus não vinculou (ex.: créditos/CR), títulos vêm vazio.
+     */
+    async listarMovimentos(query: MovimentosQuery): Promise<MovimentosResponse> {
+      const pagina = query.pagina ?? 1;
+      const porPagina = query.porPagina ?? 20;
+      const offset = (pagina - 1) * porPagina;
+
+      const qb = movtoRepo.createQueryBuilder('m').where('m.excluido_em IS NULL');
+      // "Identificado" = conciliado no Globus OU com título de CP ligado. Assim
+      // um borderô que sabemos o que pagou não cai em "falta identificar".
+      if (query.status === 'identificados') qb.andWhere(IDENTIFICADO_SQL);
+      else if (query.status === 'nao_identificados') qb.andWhere(`NOT ${IDENTIFICADO_SQL}`);
+
+      if (query.contaId) {
+        const conta = await contaRepo.findOne({ where: { id: query.contaId } });
+        if (conta) {
+          qb.andWhere('m.cod_banco = :cb AND m.cod_agencia = :ca AND m.cod_conta_bco = :cc', {
+            cb: conta.codBanco, ca: conta.codAgencia, cc: conta.codContaBco,
+          });
+        }
+      }
+      if (query.busca?.trim()) {
+        qb.andWhere(
+          '(m.desc_histo_bco ILIKE :q OR m.hist_movto_bco ILIKE :q OR m.doc_movto_bco ILIKE :q)',
+          { q: `%${query.busca.trim()}%` },
+        );
+      }
+      if (query.dtIni) qb.andWhere('m.data_movto >= :dtIni', { dtIni: query.dtIni });
+      if (query.dtFim) qb.andWhere('m.data_movto <= :dtFim', { dtFim: query.dtFim });
+
+      const total = await qb.getCount();
+      const movtos = await qb
+        .orderBy('m.data_movto', 'DESC')
+        .addOrderBy('m.cod_movto_bco', 'DESC')
+        .limit(porPagina)
+        .offset(offset)
+        .getMany();
+
+      // Resolve os títulos (CP) que o Globus amarrou, em lote por cod_movto_bco.
+      const cods = [...new Set(movtos.map((m) => m.codMovtoBco).filter((c): c is string => !!c))];
+      const titulosPorCod = new Map<string, TituloVinculado[]>();
+      if (cods.length > 0) {
+        const cps = await cpRepo
+          .createQueryBuilder('cp')
+          .leftJoinAndSelect('cp.fornecedor', 'forn')
+          .where('cp.cod_movto_bco IN (:...cods)', { cods })
+          .andWhere('cp.excluido_em IS NULL')
+          .getMany();
+        for (const cp of cps) {
+          const k = String(cp.codMovtoBco);
+          const arr = titulosPorCod.get(k) ?? [];
+          arr.push({
+            id: cp.id,
+            tipo: 'cp',
+            numeroDocumento: cp.numeroDocumento,
+            fornecedorRazaoSocial: cp.fornecedor?.razaoSocial ?? null,
+            valorCents: Number(cp.valorBrutoCents),
+          });
+          titulosPorCod.set(k, arr);
+        }
+      }
+
+      // Vínculos MANUAIS (nossos): conciliações confirmadas por operador. Complementam
+      // o que o Globus não amarrou (créditos/CR, ou CP sem cod_movto_bco). Chave = banco_movto_id.
+      const movtoIds = movtos.map((m) => m.id);
+      const manualPorMovto = new Map<string, TituloVinculado[]>();
+      if (movtoIds.length > 0) {
+        const manuais = await conciliacaoRepo
+          .createQueryBuilder('c')
+          .leftJoinAndSelect('c.contaPagar', 'cp')
+          .leftJoinAndSelect('cp.fornecedor', 'forn')
+          .leftJoinAndSelect('c.contaReceber', 'cr')
+          .leftJoinAndSelect('cr.cliente', 'cli')
+          .where('c.banco_movto_id IN (:...ids)', { ids: movtoIds })
+          .andWhere("c.status = 'confirmado'")
+          .getMany();
+        for (const c of manuais) {
+          const arr = manualPorMovto.get(c.bancoMovtoId) ?? [];
+          if (c.contaPagar) {
+            arr.push({
+              id: c.contaPagar.id,
+              tipo: 'cp',
+              numeroDocumento: c.contaPagar.numeroDocumento,
+              fornecedorRazaoSocial: c.contaPagar.fornecedor?.razaoSocial ?? null,
+              valorCents: Number(c.contaPagar.valorBrutoCents),
+            });
+          } else if (c.contaReceber) {
+            arr.push({
+              id: c.contaReceber.id,
+              tipo: 'cr',
+              numeroDocumento: c.contaReceber.numeroDocumento,
+              fornecedorRazaoSocial: c.contaReceber.cliente?.razaoSocial ?? null,
+              valorCents: Number(c.contaReceber.valorBrutoCents),
+            });
+          }
+          manualPorMovto.set(c.bancoMovtoId, arr);
+        }
+      }
+
+      // Nome amigável da conta (cadastro pequeno — carrega tudo e indexa).
+      const contas = await contaRepo.createQueryBuilder('bc').where('bc.excluido_em IS NULL').getMany();
+      const nomePorChave = new Map(
+        contas.map((c) => [`${c.codBanco}|${c.codAgencia}|${c.codContaBco}`, c.nomeAmigavel ?? c.nomeContaBco]),
+      );
+
+      const itens = movtos.map((m) => {
+        const titulosGlobus = titulosPorCod.get(String(m.codMovtoBco)) ?? [];
+        const titulosManuais = manualPorMovto.get(m.id) ?? [];
+        return {
+          id: m.id,
+          dataMovto: m.dataMovto,
+          valorCents: Number(m.valorCents),
+          debitoCredito: m.debitoCredito,
+          descHistoBco: m.descHistoBco,
+          docMovtoBco: m.docMovtoBco,
+          histMovtoBco: m.histMovtoBco ? m.histMovtoBco.slice(0, 200) : null,
+          codBanco: m.codBanco,
+          codAgencia: m.codAgencia,
+          codContaBco: m.codContaBco,
+          conciliadoGlobus: m.conciliado,
+          vinculoManual: titulosManuais.length > 0,
+          contaNome: nomePorChave.get(`${m.codBanco}|${m.codAgencia}|${m.codContaBco}`) ?? null,
+          titulos: [...titulosGlobus, ...titulosManuais],
+        };
+      });
+
+      return {
+        itens,
+        total,
+        pagina,
+        porPagina,
+        totalPaginas: Math.max(1, Math.ceil(total / porPagina)),
+      };
+    },
+
+    /**
+     * Contas bancárias com saldo (âncora preenchida pelo tesoureiro) + agregados
      * de movimentos (total / conciliados / sem par). Saldo null = sem dado, exibido
-     * como tal no front (nunca zerar em silencio). Ordena: principais primeiro,
+     * como tal no front (nunca zerar em silêncio). Ordena: principais primeiro,
      * depois maior saldo.
      */
     async listarContas(): Promise<ContasBancariasResponse> {
@@ -206,9 +385,11 @@ export function buildConciliacaoService(fastify: FastifyInstance) {
         .addSelect('m.cod_agencia', 'a')
         .addSelect('m.cod_conta_bco', 'c')
         .addSelect('COUNT(*)', 'tot')
-        .addSelect('COUNT(*) FILTER (WHERE m.conciliado)', 'conc')
-        .addSelect('COUNT(*) FILTER (WHERE NOT m.conciliado)', 'sp')
-        .addSelect('COALESCE(SUM(ABS(m.valor_cents)) FILTER (WHERE NOT m.conciliado), 0)', 'vsp')
+        // Identificado = conciliado no Globus OU com título de CP ligado (mesma
+        // regra do dashboard). Antes contava só o flag e inflava o "sem par".
+        .addSelect(`COUNT(*) FILTER (WHERE ${IDENTIFICADO_SQL})`, 'conc')
+        .addSelect(`COUNT(*) FILTER (WHERE NOT ${IDENTIFICADO_SQL})`, 'sp')
+        .addSelect(`COALESCE(SUM(ABS(m.valor_cents)) FILTER (WHERE NOT ${IDENTIFICADO_SQL}), 0)`, 'vsp')
         .where('m.excluido_em IS NULL')
         .groupBy('m.cod_banco')
         .addGroupBy('m.cod_agencia')
@@ -255,8 +436,8 @@ export function buildConciliacaoService(fastify: FastifyInstance) {
     },
 
     /**
-     * Auto-match: para cada movto banco não conciliado e sem sugestao ativa,
-     * procura CP (debito) ou CR (credito) com data +/- N dias e valor exato.
+     * Auto-match: para cada movto banco não conciliado e sem sugestão ativa,
+     * procura CP (débito) ou CR (crédito) com data +/- N dias e valor exato.
      */
     async sugerir(): Promise<SugerirResponse> {
       const inicio = Date.now();
@@ -269,7 +450,7 @@ export function buildConciliacaoService(fastify: FastifyInstance) {
         .limit(2000)
         .getMany();
 
-      // IDs ja com sugestao ativa
+      // IDs já com sugestão ativa
       const jaSugeridos = await conciliacaoRepo
         .createQueryBuilder('c')
         .select('DISTINCT c.banco_movto_id', 'id')
@@ -372,7 +553,7 @@ export function buildConciliacaoService(fastify: FastifyInstance) {
         .leftJoinAndSelect('c.contaReceber', 'cr')
         .leftJoinAndSelect('cr.cliente', 'cli')
         .where("c.status = 'sugerido'")
-        // PROPERTY name no orderBy (nao coluna do banco): leftJoinAndSelect + limit
+        // PROPERTY name no orderBy (não coluna do banco): leftJoinAndSelect + limit
         // cai no caminho combined-select do TypeORM, que resolve por property.
         .orderBy('c.scoreConfianca', 'DESC')
         .limit(200)
@@ -389,7 +570,7 @@ export function buildConciliacaoService(fastify: FastifyInstance) {
         .leftJoinAndSelect('c.contaReceber', 'cr')
         .leftJoinAndSelect('cr.cliente', 'cli')
         .where("c.status = 'confirmado'")
-        // PROPERTY name no orderBy (nao coluna do banco): leftJoinAndSelect + limit
+        // PROPERTY name no orderBy (não coluna do banco): leftJoinAndSelect + limit
         // cai no caminho combined-select do TypeORM, que resolve por property.
         .orderBy('c.confirmadoEm', 'DESC')
         .limit(100)
@@ -398,15 +579,13 @@ export function buildConciliacaoService(fastify: FastifyInstance) {
     },
 
     async semPar(): Promise<SemParResponse> {
-      // Movtos sem par: nao conciliado E sem sugestao/confirmacao ativa.
-      // Sem janela de data (o card do dashboard conta all-time; a lista tambem).
-      // `conciliado IS NOT TRUE` cobre false E null (mesma semantica do dashboard,
-      // que faz total - conciliados=true). NOT EXISTS em vez de leftJoin com a
-      // classe-entidade — mais robusto e bate com a query de candidatos.
+      // Movtos SEM PAR de verdade: não identificados (nem conciliado no Globus,
+      // nem com título de CP ligado) E sem sugestão/confirmação ativa nossa.
+      // Sem janela de data — bate com o card do dashboard.
       const semParMovtos = await movtoRepo
         .createQueryBuilder('m')
         .where('m.excluido_em IS NULL')
-        .andWhere('m.conciliado IS NOT TRUE')
+        .andWhere(`NOT ${IDENTIFICADO_SQL}`)
         .andWhere(
           "NOT EXISTS (SELECT 1 FROM finance.conciliacoes cc WHERE cc.banco_movto_id = m.id AND cc.status IN ('sugerido','confirmado'))",
         )
@@ -415,8 +594,8 @@ export function buildConciliacaoService(fastify: FastifyInstance) {
         .getMany();
 
       // "CPs pagos sem extrato" removido por ora: listava 100 de milhares de CPs
-      // pagos sem relacao real com os movimentos (a maioria anterior ao sync banco).
-      // Volta quando houver match CP<->movto que selecione so os CPs relevantes.
+      // pagos sem relação real com os movimentos (a maioria anterior ao sync banco).
+      // Volta quando houver match CP<->movto que selecione só os CPs relevantes.
       return {
         movimentos: semParMovtos.map(toMovtoResumo),
         titulos: [],
@@ -424,20 +603,20 @@ export function buildConciliacaoService(fastify: FastifyInstance) {
     },
 
     /**
-     * Candidatos a conciliacao manual de UM movto banco. Como o Globus guarda
-     * valor sempre positivo (debito/credito implicito no historico, nao lido),
-     * nao da pra saber se o movto e CP ou CR — devolve OS DOIS lados e o operador
-     * julga. Estrategia:
-     *   - sem busca textual: titulos com valor ±10% e data ±30d do movto;
-     *   - com busca (q >= 2 chars): casa por nº do documento OU razao social,
-     *     ignorando valor/data (pra achar aquele titulo especifico).
-     * Exclui titulos ja conciliados (status=confirmado) pra nao duplicar baixa.
+     * Candidatos a conciliação manual de UM movto banco. Como o Globus guarda
+     * valor sempre positivo (débito/crédito implícito no histórico, não lido),
+     * não dá pra saber se o movto é CP ou CR — devolve OS DOIS lados e o operador
+     * julga. Estratégia:
+     *   - sem busca textual: títulos com valor ±10% e data ±30d do movto;
+     *   - com busca (q >= 2 chars): casa por nº do documento OU razão social,
+     *     ignorando valor/data (pra achar aquele título específico).
+     * Exclui títulos já conciliados (status=confirmado) pra não duplicar baixa.
      * Ordena por proximidade de valor, depois de data — em JS, pra evitar o
      * caminho orderBy+leftJoinAndSelect+limit do TypeORM (quebra com coluna crua).
      */
     async buscarCandidatos(args: { movtoId: string; q?: string }): Promise<ConciliacaoCandidatosResponse> {
       const movto = await movtoRepo.findOne({ where: { id: args.movtoId } });
-      if (!movto) throw fastify.httpErrors.notFound('Movimento bancario nao encontrado');
+      if (!movto) throw fastify.httpErrors.notFound('Movimento bancário não encontrado');
 
       const valorAlvo = Math.abs(Number(movto.valorCents));
       const q = args.q?.trim();
@@ -509,9 +688,9 @@ export function buildConciliacaoService(fastify: FastifyInstance) {
     },
 
     /**
-     * Conciliacao manual: o operador vincula UM movto banco a UM titulo (CP/CR).
-     * Diferente do auto-match, ja entra como 'confirmado' (decisao humana, score 100)
-     * e marca o movto como conciliado. Bloqueia se o movto ja tem conciliacao ativa.
+     * Conciliação manual: o operador vincula UM movto banco a UM título (CP/CR).
+     * Diferente do auto-match, já entra como 'confirmado' (decisão humana, score 100)
+     * e marca o movto como conciliado. Bloqueia se o movto já tem conciliação ativa.
      */
     async conciliarManual(args: {
       bancoMovtoId: string;
@@ -521,9 +700,9 @@ export function buildConciliacaoService(fastify: FastifyInstance) {
       observacao?: string;
     }): Promise<ConciliacaoResponse> {
       const movto = await movtoRepo.findOne({ where: { id: args.bancoMovtoId } });
-      if (!movto) throw fastify.httpErrors.notFound('Movimento bancario nao encontrado');
-      if (movto.excluidoEm) throw fastify.httpErrors.conflict('Movimento bancario excluido');
-      if (movto.conciliado) throw fastify.httpErrors.conflict('Movimento bancario ja conciliado');
+      if (!movto) throw fastify.httpErrors.notFound('Movimento bancário não encontrado');
+      if (movto.excluidoEm) throw fastify.httpErrors.conflict('Movimento bancário excluído');
+      if (movto.conciliado) throw fastify.httpErrors.conflict('Movimento bancário já conciliado');
 
       const ativa = await conciliacaoRepo
         .createQueryBuilder('c')
@@ -531,7 +710,7 @@ export function buildConciliacaoService(fastify: FastifyInstance) {
         .andWhere("c.status IN ('sugerido','confirmado')")
         .getCount();
       if (ativa > 0) {
-        throw fastify.httpErrors.conflict('Movimento ja possui conciliacao ativa (sugerida ou confirmada)');
+        throw fastify.httpErrors.conflict('Movimento já possui conciliação ativa (sugerida ou confirmada)');
       }
 
       let contaPagarId: string | null = null;
@@ -540,12 +719,12 @@ export function buildConciliacaoService(fastify: FastifyInstance) {
 
       if (args.tipo === 'cp') {
         const cp = await cpRepo.findOne({ where: { id: args.tituloId } });
-        if (!cp || cp.excluidoEm) throw fastify.httpErrors.notFound('Conta a pagar nao encontrada');
+        if (!cp || cp.excluidoEm) throw fastify.httpErrors.notFound('Conta a pagar não encontrada');
         contaPagarId = cp.id;
         dataTitulo = cp.dataPagamento ?? cp.dataVencimento;
       } else {
         const cr = await crRepo.findOne({ where: { id: args.tituloId } });
-        if (!cr || cr.excluidoEm) throw fastify.httpErrors.notFound('Conta a receber nao encontrada');
+        if (!cr || cr.excluidoEm) throw fastify.httpErrors.notFound('Conta a receber não encontrada');
         contaReceberId = cr.id;
         dataTitulo = cr.dataRecebimento ?? cr.dataVencimento;
       }
@@ -557,10 +736,10 @@ export function buildConciliacaoService(fastify: FastifyInstance) {
         contaPagarId,
         contaReceberId,
         tipo: 'manual',
-        scoreConfianca: 100, // decisao humana
+        scoreConfianca: 100, // decisão humana
         diferencaDias: diff,
         status: 'confirmado',
-        observacao: args.observacao?.trim() || 'Conciliacao manual',
+        observacao: args.observacao?.trim() || 'Conciliação manual',
         confirmadoEm: new Date(),
         confirmadoPorId: args.usuarioId,
       });
@@ -581,9 +760,9 @@ export function buildConciliacaoService(fastify: FastifyInstance) {
         where: { id: args.id },
         relations: ['bancoMovto', 'contaPagar', 'contaPagar.fornecedor', 'contaReceber', 'contaReceber.cliente'],
       });
-      if (!c) throw fastify.httpErrors.notFound('Conciliacao nao encontrada');
+      if (!c) throw fastify.httpErrors.notFound('Conciliação não encontrada');
       if (c.status !== 'sugerido') {
-        throw fastify.httpErrors.conflict(`Conciliacao com status ${c.status} nao pode ser confirmada`);
+        throw fastify.httpErrors.conflict(`Conciliação com status ${c.status} não pode ser confirmada`);
       }
       c.status = 'confirmado';
       c.confirmadoEm = new Date();
@@ -595,18 +774,28 @@ export function buildConciliacaoService(fastify: FastifyInstance) {
         await movtoRepo.save(c.bancoMovto);
       }
 
+      await fastify.auditoria.registrarAlteracao({
+        usuarioId: args.usuarioId,
+        recurso: 'conciliacao',
+        recursoId: c.id,
+        acao: 'aprovou',
+        descricao: 'Conciliação bancária confirmada',
+        antes: { status: 'sugerido' },
+        depois: { status: 'confirmado' },
+      });
+
       return toConciliacaoResponse(c);
     },
 
     /**
-     * Conciliacao por AGREGACAO (borderô): para cada movto banco sem par,
+     * Conciliação por AGREGAÇÃO (borderô): para cada movto banco sem par,
      * busca subconjunto de CPs/CRs cuja SOMA bate com o valor do movto
      * (data ±3d). Limita combinações pra evitar explosão.
      *
-     * Exemplo: borderô #010315 R$ 36.354,97 → acha que sao 3 fornecedores
+     * Exemplo: borderô #010315 R$ 36.354,97 → acha que são 3 fornecedores
      * pagos juntos (R$ 10k + R$ 15k + R$ 11.354,97).
      *
-     * Cria 1 conciliacao 'sugerido' por CP/CR do subset, todas referenciando
+     * Cria 1 conciliação 'sugerido' por CP/CR do subset, todas referenciando
      * o mesmo banco_movto_id. Observação registra o tamanho do agregado.
      */
     async sugerirAgregacao(): Promise<SugerirAgregacaoResponse> {
@@ -647,7 +836,7 @@ export function buildConciliacaoService(fastify: FastifyInstance) {
         const dtIni = dataIni.toISOString().slice(0, 10);
         const dtFim = dataFim.toISOString().slice(0, 10);
 
-        // Busca candidatos (CR se credito, CP se debito)
+        // Busca candidatos (CR se crédito, CP se débito)
         type Candidato = { id: string; valor: number; data: string; isCp: boolean };
         let candidatos: Candidato[] = [];
 
@@ -698,7 +887,7 @@ export function buildConciliacaoService(fastify: FastifyInstance) {
           continue;
         }
 
-        // Cria 1 conciliacao por item do subset
+        // Cria 1 conciliação por item do subset
         for (const item of subset) {
           const diff = Math.abs(
             Math.round((new Date(`${item.data}T00:00:00Z`).getTime() - new Date(`${m.dataMovto}T00:00:00Z`).getTime()) / 86_400_000),
@@ -711,7 +900,7 @@ export function buildConciliacaoService(fastify: FastifyInstance) {
             scoreConfianca: Math.max(50, 90 - diff * 5),
             diferencaDias: diff,
             status: 'sugerido',
-            observacao: `Agregacao: ${subset.length} titulos somando R$ ${(valorAlvo / 100).toFixed(2)} (borderô)`,
+            observacao: `Agregação: ${subset.length} títulos somando R$ ${(valorAlvo / 100).toFixed(2)} (borderô)`,
           });
           await conciliacaoRepo.save(novo);
           titulosNoSubset++;
@@ -733,11 +922,284 @@ export function buildConciliacaoService(fastify: FastifyInstance) {
         where: { id: args.id },
         relations: ['bancoMovto', 'contaPagar', 'contaPagar.fornecedor', 'contaReceber', 'contaReceber.cliente'],
       });
-      if (!c) throw fastify.httpErrors.notFound('Conciliacao nao encontrada');
+      if (!c) throw fastify.httpErrors.notFound('Conciliação não encontrada');
+      const statusAntes = c.status;
       c.status = 'rejeitado';
       c.observacao = args.motivo ?? c.observacao;
       await conciliacaoRepo.save(c);
+      await fastify.auditoria.registrarAlteracao({
+        usuarioId: args.usuarioId,
+        recurso: 'conciliacao',
+        recursoId: c.id,
+        acao: 'rejeitou',
+        descricao: args.motivo ? `Conciliação rejeitada — ${args.motivo}` : 'Conciliação rejeitada',
+        antes: { status: statusAntes },
+        depois: { status: 'rejeitado' },
+      });
       return toConciliacaoResponse(c);
+    },
+
+    /**
+     * EXTRATO MENSAL — entrou × saiu por mês. Transferências entre contas
+     * próprias ficam à parte (não são resultado operacional). O resultado do mês
+     * é entradas − saídas.
+     */
+    async extratoMensal(query: ExtratoMensalQuery): Promise<ExtratoMensalResponse> {
+      // Agrega SEMPRE o histórico inteiro (o saldo acumula desde o 1º movimento);
+      // o filtro de período só recorta a EXIBIÇÃO no fim. O sinal do movimento
+      // (efeito_saldo_cents: + entrou, − saiu) resolve entrada/saída e o saldo.
+      const qb = movtoRepo.createQueryBuilder('m')
+        .where('m.excluido_em IS NULL')
+        .andWhere('m.efeito_saldo_cents IS NOT NULL');
+
+      if (query.contaId) {
+        const conta = await contaRepo.findOne({ where: { id: query.contaId } });
+        if (conta) {
+          qb.andWhere('m.cod_banco = :cb AND m.cod_agencia = :ca AND m.cod_conta_bco = :cc', {
+            cb: conta.codBanco, ca: conta.codAgencia, cc: conta.codContaBco,
+          });
+        }
+      }
+
+      const linhas = await qb
+        .select('m.cod_banco', 'cb')
+        .addSelect('m.cod_agencia', 'ca')
+        .addSelect('m.cod_conta_bco', 'cc')
+        .addSelect("to_char(m.data_movto, 'YYYY-MM')", 'mes')
+        .addSelect('COUNT(*)', 'qtd')
+        .addSelect('COALESCE(SUM(m.efeito_saldo_cents) FILTER (WHERE m.efeito_saldo_cents > 0), 0)', 'entrou')
+        .addSelect('COALESCE(-SUM(m.efeito_saldo_cents) FILTER (WHERE m.efeito_saldo_cents < 0), 0)', 'saiu')
+        .groupBy('m.cod_banco').addGroupBy('m.cod_agencia').addGroupBy('m.cod_conta_bco')
+        .addGroupBy("to_char(m.data_movto, 'YYYY-MM')")
+        .getRawMany<{ cb: number; ca: number; cc: string; mes: string; qtd: string; entrou: string; saiu: string }>();
+
+      const MES_LABEL = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+      const rotulo = (mes: string): string => {
+        const [ano, m] = mes.split('-');
+        return `${MES_LABEL[Number(m) - 1] ?? m}/${ano}`;
+      };
+
+      // Recorte do período (só a exibição). Sem ano = últimos 12 meses.
+      const hoje = new Date();
+      const limiteIso = query.ano
+        ? `${query.ano}-01`
+        : `${new Date(hoje.getFullYear(), hoje.getMonth() - 11, 1).toISOString().slice(0, 7)}`;
+      const fimIso = query.ano ? `${query.ano}-12` : `${hoje.toISOString().slice(0, 7)}`;
+      const noPeriodo = (mes: string): boolean => mes >= limiteIso && mes <= fimIso;
+
+      interface MesBruto { mes: string; movimentos: number; entradasCents: number; saidasCents: number }
+
+      // Âncoras de saldo por conta (id → {data, saldo}).
+      const contas = await contaRepo.find();
+      const chaveConta = (cb: number, ca: number, cc: string): string => `${cb}|${ca}|${cc}`;
+      const ancoraPorChave = new Map<string, { dataMes: string; saldoCents: number }>();
+      for (const c of contas) {
+        if (c.saldoAcmCents !== null && c.dataSaldoAcm) {
+          ancoraPorChave.set(chaveConta(c.codBanco, c.codAgencia, c.codContaBco), {
+            dataMes: c.dataSaldoAcm.slice(0, 7), saldoCents: Number(c.saldoAcmCents),
+          });
+        }
+      }
+
+      // Agrupa as linhas por conta.
+      const porContaBruto = new Map<string, { cb: number; ca: number; cc: string; meses: Map<string, MesBruto> }>();
+      for (const l of linhas) {
+        const chave = chaveConta(l.cb, l.ca, l.cc);
+        const c = porContaBruto.get(chave) ?? { cb: l.cb, ca: l.ca, cc: l.cc, meses: new Map<string, MesBruto>() };
+        c.meses.set(l.mes, {
+          mes: l.mes, movimentos: Number(l.qtd),
+          entradasCents: Number(l.entrou), saidasCents: Number(l.saiu),
+        });
+        porContaBruto.set(chave, c);
+      }
+
+      /**
+       * Constrói os meses de uma conta com SALDO ACUMULADO. Percorre TODOS os
+       * meses em ordem cronológica somando (entrou − saiu); aplica o offset da
+       * âncora quando existe (aí o saldo é real); recorta o período no fim.
+       */
+      function montarComSaldo(mesesMap: Map<string, MesBruto>, ancora: { dataMes: string; saldoCents: number } | undefined) {
+        const ordenados = [...mesesMap.values()].sort((a, b) => a.mes.localeCompare(b.mes));
+
+        // offset: sem âncora = 0 (saldo relativo, parte de zero). Com âncora,
+        // ajusta para o saldo acumulado até o mês da âncora bater com o conferido.
+        let offset = 0;
+        if (ancora) {
+          let acumAteAncora = 0;
+          for (const m of ordenados) {
+            acumAteAncora += m.entradasCents - m.saidasCents;
+            if (m.mes >= ancora.dataMes) break;
+          }
+          offset = ancora.saldoCents - acumAteAncora;
+        }
+
+        let saldo = offset;
+        const comSaldo = ordenados.map((m) => {
+          const inicial = saldo;
+          saldo += m.entradasCents - m.saidasCents;
+          return {
+            mes: m.mes, rotulo: rotulo(m.mes), movimentos: m.movimentos,
+            entradasCents: m.entradasCents, saidasCents: m.saidasCents,
+            resultadoCents: m.entradasCents - m.saidasCents,
+            saldoInicialCents: inicial, saldoFinalCents: saldo,
+          };
+        });
+
+        const doPeriodo = comSaldo.filter((m) => noPeriodo(m.mes)).sort((a, b) => b.mes.localeCompare(a.mes));
+        const totais = doPeriodo.reduce(
+          (a, m) => ({
+            entradasCents: a.entradasCents + m.entradasCents, saidasCents: a.saidasCents + m.saidasCents,
+            resultadoCents: a.resultadoCents + m.resultadoCents, movimentos: a.movimentos + m.movimentos,
+          }),
+          { entradasCents: 0, saidasCents: 0, resultadoCents: 0, movimentos: 0 },
+        );
+        return { meses: doPeriodo, totais, saldoAtualCents: saldo, saldoRelativo: !ancora };
+      }
+
+      const porConta = [...porContaBruto.values()]
+        .map((c) => {
+          const cad = contas.find((x) => x.codBanco === c.cb && x.codAgencia === c.ca && x.codContaBco === c.cc);
+          const built = montarComSaldo(c.meses, ancoraPorChave.get(chaveConta(c.cb, c.ca, c.cc)));
+          return {
+            contaId: cad?.id ?? null, nome: `Banco ${c.cb}`,
+            codBanco: c.cb, codAgencia: c.ca, codContaBco: c.cc, ...built,
+          };
+        })
+        .filter((c) => c.totais.movimentos > 0)
+        .sort((a, b) => b.totais.movimentos - a.totais.movimentos);
+
+      // Consolidado: soma dos meses de todas as contas (saldo = soma dos saldos).
+      const consMap = new Map<string, { movimentos: number; entradasCents: number; saidasCents: number; saldoFinalCents: number; saldoInicialCents: number }>();
+      for (const c of porConta) {
+        for (const m of c.meses) {
+          const cur = consMap.get(m.mes) ?? { movimentos: 0, entradasCents: 0, saidasCents: 0, saldoFinalCents: 0, saldoInicialCents: 0 };
+          cur.movimentos += m.movimentos;
+          cur.entradasCents += m.entradasCents;
+          cur.saidasCents += m.saidasCents;
+          cur.saldoFinalCents += m.saldoFinalCents;
+          cur.saldoInicialCents += m.saldoInicialCents;
+          consMap.set(m.mes, cur);
+        }
+      }
+      const meses = [...consMap.entries()]
+        .sort((a, b) => b[0].localeCompare(a[0]))
+        .map(([mes, v]) => ({
+          mes, rotulo: rotulo(mes), movimentos: v.movimentos,
+          entradasCents: v.entradasCents, saidasCents: v.saidasCents,
+          resultadoCents: v.entradasCents - v.saidasCents,
+          saldoInicialCents: v.saldoInicialCents, saldoFinalCents: v.saldoFinalCents,
+        }));
+      const totais = meses.reduce(
+        (a, m) => ({
+          entradasCents: a.entradasCents + m.entradasCents, saidasCents: a.saidasCents + m.saidasCents,
+          resultadoCents: a.resultadoCents + m.resultadoCents, movimentos: a.movimentos + m.movimentos,
+        }),
+        { entradasCents: 0, saidasCents: 0, resultadoCents: 0, movimentos: 0 },
+      );
+
+      return { meses, totais, porConta, aClassificar: 0 };
+    },
+
+    /**
+     * RECONCILIAÇÃO BANCÁRIA automática — fecha o "falta identificar" sem
+     * ninguém clicar. Ataca as duas causas dos lançamentos sem par, ambas o
+     * ponto cego do sync por janela (a mudança sai da janela e nossa cópia
+     * congela). Ver `sql-exploracao/2026-07-29-bordero-sem-par-conciliacao.sql`.
+     *
+     *  A) Movimentos que o Globus CANCELOU depois de sincronizados
+     *     (STATUSMOVTOBCO='C'): marca excluído aqui — saem do extrato e do
+     *     "sem par". Era o grosso do valor fantasma (R$ 6,5M em estornos).
+     *
+     *  B) Borderôs que pagaram títulos de CP que a janela de sync não trouxe:
+     *     consulta CPGDOCTO por CODMOVTOBCO, puxa os títulos, e eles ligam
+     *     sozinhos ao lançamento por cod_movto_bco.
+     */
+    async reconciliarBanco(usuarioId: string): Promise<{
+      status: string; movimentosVerificados: number; cancelados: number;
+      titulosPuxados: number; duracaoMs: number;
+    }> {
+      const t0 = Date.now();
+      const empresa = fastify.config.globus.empresaId;
+      if (!fastify.oracle?.isAvailable?.()) {
+        throw fastify.httpErrors.serviceUnavailable('Globus (Oracle) indisponível — não dá para reconciliar agora.');
+      }
+
+      // Alvo: lançamentos SEM PAR (não identificados). São os únicos que podem
+      // ter sido cancelados ou estar esperando o título.
+      const semPar = await movtoRepo
+        .createQueryBuilder('m')
+        .select(['m.id AS id', 'm.cod_movto_bco AS cod'])
+        .where('m.excluido_em IS NULL')
+        .andWhere(`NOT ${IDENTIFICADO_SQL}`)
+        .andWhere('m.cod_movto_bco IS NOT NULL')
+        .getRawMany<{ id: string; cod: string }>();
+
+      const cods = [...new Set(semPar.map((m) => Number(m.cod)).filter((n) => Number.isInteger(n) && n > 0))];
+      if (cods.length === 0) {
+        return { status: 'ok', movimentosVerificados: 0, cancelados: 0, titulosPuxados: 0, duracaoMs: Date.now() - t0 };
+      }
+
+      const LOTE = 500;
+      interface RawStatusRow { COD_MOVTO_BCO: number; STATUS_MOVTO: string | null }
+      let cancelados = 0;
+
+      // --- A) Detecta cancelamento no Globus e marca excluído aqui.
+      for (let i = 0; i < cods.length; i += LOTE) {
+        const fatia = cods.slice(i, i + LOTE);
+        const inList = fatia.map((c) => Math.trunc(c)).join(', ');
+        const sql = GLOBUS_QUERIES.bcoMovtoPorCodigos.replace('__CODMOVTOS__', inList);
+        const r = await fastify.oracle.execute<RawStatusRow>(sql, { empresa }, { queryName: 'bcoMovtoPorCodigos' });
+        const canceladosNoGlobus = (r.rows ?? [])
+          .filter((row) => String(row.STATUS_MOVTO ?? '').toUpperCase() === 'C')
+          .map((row) => String(row.COD_MOVTO_BCO));
+        if (canceladosNoGlobus.length > 0) {
+          const res = await movtoRepo
+            .createQueryBuilder()
+            .update()
+            .set({ excluidoEm: () => 'NOW()', excluidoMotivo: 'cancelado_no_globus' })
+            .where('cod_movto_bco IN (:...cods)', { cods: canceladosNoGlobus })
+            .andWhere('excluido_em IS NULL')
+            .execute();
+          cancelados += res.affected ?? 0;
+        }
+      }
+
+      // --- B) Puxa os títulos de CP ligados aos borderôs ainda sem par.
+      // Reconsulta só os que NÃO foram cancelados (os cancelados já saíram).
+      const restantes = cods.filter(Boolean);
+      let titulosPuxados = 0;
+      const codDoctos: number[] = [];
+      for (let i = 0; i < restantes.length; i += LOTE) {
+        const fatia = restantes.slice(i, i + LOTE);
+        const inList = fatia.map((c) => Math.trunc(c)).join(', ');
+        const sql = GLOBUS_QUERIES.contasAPagarPorCodMovto.replace('__CODMOVTOS__', inList);
+        const r = await fastify.oracle.execute<{ COD_DOCTO_CPG: number }>(
+          sql, { empresa }, { queryName: 'contasAPagarPorCodMovto' },
+        );
+        for (const row of r.rows ?? []) {
+          const cod = Number(row.COD_DOCTO_CPG);
+          if (Number.isInteger(cod) && cod > 0) codDoctos.push(cod);
+        }
+      }
+      if (codDoctos.length > 0) {
+        const rec = await cpAdapter.reconciliarPorCodigos([...new Set(codDoctos)], empresa);
+        if (rec.status !== 'erro') {
+          const etlRes = await cpEtl.processarPendentes(rec.jobId);
+          titulosPuxados = etlRes.gravados;
+        }
+      }
+
+      fastify.log.info(
+        { usuarioId, movimentos: cods.length, cancelados, titulosPuxados },
+        '[conciliacao] reconciliação bancária concluída',
+      );
+      return {
+        status: 'ok',
+        movimentosVerificados: cods.length,
+        cancelados,
+        titulosPuxados,
+        duracaoMs: Date.now() - t0,
+      };
     },
   };
 }
